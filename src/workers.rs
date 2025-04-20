@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::Client;
 
 use crate::downloaders;
-use crate::models::Track;
+use crate::models::{Service, Track};
 
 #[expect(
     clippy::too_many_arguments,
@@ -45,13 +45,15 @@ pub async fn run_album_worker(
     eprintln!("[WORKER {album_worker}] stopped");
 }
 
+#[expect(clippy::type_complexity)]
 #[expect(
     clippy::too_many_arguments,
     reason = "this function is called from a single place"
 )]
 pub async fn run_track_worker(
     client: Client,
-    tracks: Arc<Mutex<Vec<(u32, Track)>>>,
+    service: Service,
+    tracks: Arc<Mutex<Vec<(Option<u32>, Track)>>>,
     track_count: u32,
     token_expiry: u64,
     country: String,
@@ -66,6 +68,7 @@ pub async fn run_track_worker(
 
         downloaders::download_track(
             client.clone(),
+            service,
             &track,
             track_number,
             track_count,

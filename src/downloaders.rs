@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use futures::future;
 use reqwest::Client;
 use tokio::time;
 
-use crate::models::{PageData, Track};
+use crate::models::{Info, PageData, Service, Track};
 use crate::{requests, text_utils, workers};
 
 #[expect(
@@ -63,34 +64,75 @@ pub async fn download_album(
     ))
     .unwrap();
 
-    let tracks_len = page_data.info.tracks.len();
+    let (album_title, cover_artwork, artist_name, tracks, track_count, tracks_len) =
+        match page_data.info {
+            Info::Album {
+                title,
+                mut cover_artwork,
+                mut artists,
+                track_count,
+                tracks,
+            } => {
+                let tracks_len = tracks.len();
+
+                (
+                    title,
+                    cover_artwork.pop().unwrap(),
+                    artists
+                        .pop()
+                        .map_or_else(|| "Unknown".into(), |artist| artist.name),
+                    tracks
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, track)| (Some(u32::try_from(i).unwrap() + 1), track))
+                        .rev()
+                        .collect(),
+                    track_count,
+                    tracks_len,
+                )
+            }
+            Info::Track {
+                url,
+                title,
+                artists,
+                mut album,
+                producers,
+            } => (
+                album.title,
+                album.cover_artwork.pop().unwrap(),
+                album.artists.pop().map_or_else(
+                    || artists.last().unwrap().name.clone(),
+                    |artist| artist.name,
+                ),
+                vec![(
+                    None,
+                    Track {
+                        title,
+                        url,
+                        artists,
+                        producers,
+                        csrf: page_data.token,
+                        csrf_fallback: None,
+                    },
+                )],
+                album.track_count.unwrap_or(1),
+                1,
+            ),
+        };
 
     eprintln!(
-        "[WORKER {album_worker}] downloading album {} - {} with {tracks_len} tracks",
-        page_data.info.artists[0].name, page_data.info.title
+        "[WORKER {album_worker}] downloading album {artist_name} - {album_title} with {tracks_len} tracks"
     );
 
     let album_path = PathBuf::from_iter([
         output_path,
-        Path::new(&text_utils::sanitize_file_name(
-            &page_data.info.artists[0].name,
-        )),
-        Path::new(&text_utils::sanitize_file_name(&page_data.info.title)),
+        Path::new(&text_utils::sanitize_file_name(&artist_name)),
+        Path::new(&text_utils::sanitize_file_name(&album_title)),
     ]);
 
     fs::create_dir_all(&album_path).unwrap();
 
-    let tracks = Arc::new(Mutex::new(
-        page_data
-            .info
-            .tracks
-            .into_iter()
-            .enumerate()
-            .map(|(i, track)| (u32::try_from(i).unwrap() + 1, track))
-            .rev()
-            .collect(),
-    ));
-
+    let tracks = Arc::new(Mutex::new(tracks));
     let album_path = Arc::new(album_path);
 
     if !skip_tracks {
@@ -101,8 +143,9 @@ pub async fn download_album(
         for result in future::join_all((1..=workers).map(|track_worker| {
             tokio::spawn(workers::run_track_worker(
                 client.clone(),
+                page_data.original_service,
                 tracks.clone(),
-                page_data.info.track_count,
+                track_count,
                 page_data.token_expiry,
                 country.clone(),
                 album_path.clone(),
@@ -119,8 +162,9 @@ pub async fn download_album(
     if !skip_cover {
         download_album_cover(
             client,
-            &page_data.info.title,
-            &page_data.info.cover_artwork[0].url,
+            &album_title,
+            page_data.original_service,
+            &cover_artwork.url,
             &album_path,
             album_worker,
         )
@@ -134,8 +178,9 @@ pub async fn download_album(
 )]
 pub async fn download_track(
     client: Client,
+    service: Service,
     track: &Track,
-    track_number: u32,
+    track_number: Option<u32>,
     track_count: u32,
     token_expiry: u64,
     country: &str,
@@ -143,7 +188,9 @@ pub async fn download_track(
     album_worker: usize,
     track_worker: usize,
 ) {
-    if track.producers.is_none() {
+    // HACK(jel): this seems to be the only way to detect tracks that are impossible
+    // to download yet
+    if matches!(service, Service::Qobuz) && track.producers.is_none() {
         eprintln!(
             "[WORKER {album_worker}-{track_worker}] skipping unavailable track {}",
             track.title
@@ -158,7 +205,7 @@ pub async fn download_track(
     );
 
     let (download, mime_type) = 'track_download: loop {
-        let fetch_stream = requests::request_track_download(
+        let track_download = requests::request_track_download(
             &client,
             track,
             token_expiry,
@@ -171,25 +218,30 @@ pub async fn download_track(
         let mut last_status: Option<(String, String, Instant)> = None;
 
         loop {
-            let Some(fetch_request) =
-                requests::track_download_status(&client, &fetch_stream, album_worker, track_worker)
-                    .await
+            let Some(track_download) = requests::track_download_status(
+                &client,
+                &track_download,
+                album_worker,
+                track_worker,
+            )
+            .await
             else {
                 continue 'track_download;
             };
 
             if last_status.as_ref().is_none_or(|last_status| {
-                (&fetch_request.status, &fetch_request.message) != (&last_status.0, &last_status.1)
+                (&track_download.status, &track_download.message)
+                    != (&last_status.0, &last_status.1)
             }) {
                 eprintln!(
                     "[WORKER {album_worker}-{track_worker}] new download status: {}: {}",
-                    fetch_request.status,
-                    fetch_request.message.replace("{item}", &track.title)
+                    track_download.status,
+                    track_download.message.replace("{item}", &track.title)
                 );
 
                 last_status = Some((
-                    fetch_request.status.clone(),
-                    fetch_request.message,
+                    track_download.status.clone(),
+                    track_download.message,
                     Instant::now(),
                 ));
             } else if let Some(last_status) = last_status.as_ref() {
@@ -204,7 +256,7 @@ pub async fn download_track(
                 }
             }
 
-            if fetch_request.status == "completed" {
+            if track_download.status == "completed" {
                 break;
             }
 
@@ -212,7 +264,7 @@ pub async fn download_track(
         }
 
         let Some(track) =
-            requests::download_track(&client, &fetch_stream, album_worker, track_worker).await
+            requests::download_track(&client, &track_download, album_worker, track_worker).await
         else {
             continue 'track_download;
         };
@@ -220,22 +272,33 @@ pub async fn download_track(
         break track;
     };
 
-    let file_extension = match mime_type.as_str() {
-        "audio/flac" => "flac",
-        _ => panic!("unsupported mime type {mime_type}"),
-    };
-
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
     )]
+    let track_number = track_number.map_or_else(String::new, |track_number| {
+        format!(
+            "{track_number:00$}. ",
+            (track_count as f32).log10().floor() as usize + 1
+        )
+    });
+
+    let artist = if let [artist, ..] = track.artists.as_slice() {
+        format!("{} - ", text_utils::sanitize_file_name(&artist.name))
+    } else {
+        String::new()
+    };
+
+    let file_extension = match mime_type.as_str() {
+        "audio/flac" => "flac",
+        _ => panic!("unsupported mime type {mime_type}"),
+    };
+
     let file_name = format!(
-        "{track_number:03$}. {} - {}.{}",
-        text_utils::sanitize_file_name(&track.artists[0].name),
+        "{track_number}{artist}{}.{}",
         text_utils::sanitize_file_name(&track.title),
-        file_extension,
-        (track_count as f32).log10().floor() as usize + 1
+        file_extension
     );
 
     let track_path = album_path.join(&file_name);
@@ -246,15 +309,21 @@ pub async fn download_track(
 pub async fn download_album_cover(
     client: Client,
     title: &str,
+    service: Service,
     url: &str,
     album_path: &Path,
     album_worker: usize,
 ) {
     eprintln!("[WORKER {album_worker}] downloading {title} album cover");
 
-    let stripped_url = url.strip_suffix(".jpg").unwrap();
-    let end_index = stripped_url.rfind('_').unwrap() + 1;
-    let url = format!("{}org.jpg", &url[..end_index]);
+    let url = match service {
+        Service::Qobuz => {
+            let stripped_url = url.strip_suffix(".jpg").unwrap();
+            let end_index = stripped_url.rfind('_').unwrap() + 1;
+            Cow::Owned(format!("{}org.jpg", &url[..end_index]))
+        }
+        Service::Tidal => Cow::Borrowed(url),
+    };
 
     let Some(cover) = requests::download_album_cover(&client, &url, album_worker).await else {
         return;

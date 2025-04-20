@@ -6,7 +6,10 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, StatusCode, Url};
 use tokio::time;
 
-use crate::models::{Track, TrackDownload, TrackDownloadResult, TrackDownloadStatus};
+use crate::models::{
+    Account, Token, Track, TrackDownload, TrackDownloadRequest, TrackDownloadResult,
+    TrackDownloadStatus, Upload,
+};
 
 pub async fn resolve_album(
     client: &Client,
@@ -55,28 +58,24 @@ pub async fn request_track_download(
     loop {
         let response = client
             .post("https://lucida.to/api/load?url=%2Fapi%2Ffetch%2Fstream%2Fv2")
-            .json(&serde_json::json!(
-                {
-                    "account": {
-                        "id": country,
-                        "type": "country"
-                    },
-                    "compat": false,
-                    "downscale": "original",
-                    "handoff": true,
-                    "metadata": true,
-                    "private": false,
-                    "token": {
-                        "expiry": token_expiry,
-                        "primary": track.csrf,
-                        "secondary": track.csrf_fallback
-                    },
-                    "upload": {
-                        "enabled": false
-                    },
-                    "url": track.url
-                }
-            ))
+            .json(&TrackDownloadRequest {
+                account: Account {
+                    id: country,
+                    r#type: "country",
+                },
+                compat: false,
+                downscale: "original",
+                handoff: true,
+                metadata: true,
+                private: false,
+                token: Token {
+                    expiry: token_expiry,
+                    primary: &track.csrf,
+                    secondary: track.csrf_fallback.as_deref(),
+                },
+                upload: Upload { enabled: false },
+                url: &track.url,
+            })
             .send()
             .await
             .unwrap();
@@ -84,9 +83,9 @@ pub async fn request_track_download(
         let status = response.status();
 
         if status == StatusCode::OK {
-            if let Ok(fetch_stream) = response.json().await {
-                match fetch_stream {
-                    TrackDownloadResult::Ok(fetch_stream) => break fetch_stream,
+            if let Ok(track_download) = response.json().await {
+                match track_download {
+                    TrackDownloadResult::Ok(track_download) => break track_download,
                     TrackDownloadResult::Error { error, .. } => {
                         eprintln!(
                             "[WORKER {album_worker}-{track_worker}] error when requesting track download: {error}"

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[command(arg_required_else_help = true)]
@@ -38,34 +38,47 @@ pub struct Cli {
     pub skip_cover: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageData {
     pub info: Info,
+    pub original_service: Service,
+    pub token: String,
     pub token_expiry: u64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Info {
-    pub title: String,
-    pub cover_artwork: Vec<CoverArtwork>,
-    pub artists: Vec<Artist>,
-    pub track_count: u32,
-    pub tracks: Vec<Track>,
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "type")]
+pub enum Info {
+    #[serde(rename_all = "camelCase")]
+    Album {
+        title: String,
+        cover_artwork: Vec<CoverArtwork>,
+        artists: Vec<Artist>,
+        track_count: u32,
+        tracks: Vec<Track>,
+    },
+    Track {
+        url: String,
+        title: String,
+        artists: Vec<Artist>,
+        album: Album,
+        producers: Option<Vec<String>>,
+    },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct CoverArtwork {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct Artist {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub title: String,
@@ -73,18 +86,65 @@ pub struct Track {
     pub artists: Vec<Artist>,
     pub producers: Option<Vec<String>>,
     pub csrf: String,
-    pub csrf_fallback: String,
+    pub csrf_fallback: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub title: String,
+    pub cover_artwork: Vec<CoverArtwork>,
+    pub artists: Vec<Artist>,
+    pub track_count: Option<u32>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Service {
+    Qobuz,
+    Tidal,
+}
+
+#[expect(clippy::struct_excessive_bools)]
+#[derive(Serialize)]
+pub struct TrackDownloadRequest<'a> {
+    pub account: Account<'a>,
+    pub compat: bool,
+    pub downscale: &'static str,
+    pub handoff: bool,
+    pub metadata: bool,
+    pub private: bool,
+    pub token: Token<'a>,
+    pub upload: Upload,
+    pub url: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct Account<'a> {
+    pub id: &'a str,
+    pub r#type: &'static str,
+}
+
+#[derive(Serialize)]
+pub struct Token<'a> {
+    pub expiry: u64,
+    pub primary: &'a str,
+    pub secondary: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+pub struct Upload {
+    pub enabled: bool,
+}
+
+#[derive(Deserialize)]
 #[serde(untagged)]
 pub enum TrackDownloadResult {
     Ok(TrackDownload),
     Error { error: String },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize)]
 pub struct TrackDownload {
     pub handoff: String,
     pub server: String,
