@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::Client;
 
 use crate::downloaders;
-use crate::models::{Service, Track};
+use crate::models::{DownloadConfig, Service, SkipConfig, Track, WorkerIds};
 
 #[expect(
     clippy::too_many_arguments,
@@ -15,10 +15,9 @@ pub async fn run_album_worker(
     client: Client,
     urls: Arc<Mutex<Vec<String>>>,
     output_path: PathBuf,
-    country: String,
+    config: DownloadConfig,
     track_workers: usize,
-    skip_tracks: bool,
-    skip_cover: bool,
+    skip: SkipConfig,
     running: Arc<AtomicBool>,
     album_worker: usize,
 ) {
@@ -32,10 +31,9 @@ pub async fn run_album_worker(
             client.clone(),
             &url,
             &output_path,
-            country.clone(),
+            config.clone(),
             track_workers,
-            skip_tracks,
-            skip_cover,
+            skip,
             running.clone(),
             album_worker,
         )
@@ -56,10 +54,9 @@ pub async fn run_track_worker(
     tracks: Arc<Mutex<Vec<(Option<u32>, Track)>>>,
     track_count: u32,
     token_expiry: u64,
-    country: String,
+    config: DownloadConfig,
     album_path: Arc<PathBuf>,
-    album_worker: usize,
-    track_worker: usize,
+    workers: WorkerIds,
 ) {
     loop {
         let Some((track_number, track)) = tracks.lock().unwrap().pop() else {
@@ -73,10 +70,9 @@ pub async fn run_track_worker(
             track_number,
             track_count,
             token_expiry,
-            &country,
+            &config,
             album_path.clone(),
-            album_worker,
-            track_worker,
+            workers,
         )
         .await;
     }

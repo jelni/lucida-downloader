@@ -1,8 +1,10 @@
+use std::fmt;
 use std::path::PathBuf;
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Parser)]
 #[command(arg_required_else_help = true)]
 pub struct Cli {
@@ -21,6 +23,14 @@ pub struct Cli {
     #[arg(long, default_value_t = String::from("auto"))]
     pub country: String,
 
+    /// disable metadata embedding by lucida
+    #[arg(long)]
+    pub no_metadata: bool,
+
+    /// hide tracks from recent downloads on lucida
+    #[arg(long)]
+    pub private: bool,
+
     /// amount of albums to download simultaneously
     #[arg(long, default_value_t = 1)]
     pub album_workers: usize,
@@ -36,6 +46,92 @@ pub struct Cli {
     /// skip downloading album cover
     #[arg(long)]
     pub skip_cover: bool,
+}
+
+#[derive(Clone)]
+pub struct DownloadConfig {
+    pub country: String,
+    pub metadata: bool,
+    pub private: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct SkipConfig {
+    pub tracks: bool,
+    pub cover: bool,
+}
+
+pub struct AlbumInfo {
+    pub title: String,
+    pub cover_artwork_url: String,
+    pub artist_name: String,
+    pub tracks: Vec<(Option<u32>, Track)>,
+    pub track_count: u32,
+}
+
+impl AlbumInfo {
+    pub fn new(info: Info, token: String) -> Self {
+        match info {
+            Info::Album {
+                title,
+                mut cover_artwork,
+                mut artists,
+                track_count,
+                tracks,
+            } => Self {
+                title,
+                cover_artwork_url: cover_artwork.pop().unwrap().url,
+                artist_name: artists
+                    .pop()
+                    .map_or_else(|| "Unknown".into(), |artist| artist.name),
+                tracks: tracks
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, track)| (Some(u32::try_from(i).unwrap() + 1), track))
+                    .rev()
+                    .collect(),
+                track_count,
+            },
+            Info::Track {
+                url,
+                title,
+                artists,
+                mut album,
+                producers,
+            } => Self {
+                title: album.title,
+                cover_artwork_url: album.cover_artwork.pop().unwrap().url,
+                artist_name: album.artists.pop().map_or_else(
+                    || artists.last().unwrap().name.clone(),
+                    |artist| artist.name,
+                ),
+                tracks: vec![(
+                    None,
+                    Track {
+                        title,
+                        url,
+                        artists,
+                        producers,
+                        csrf: token,
+                        csrf_fallback: None,
+                    },
+                )],
+                track_count: album.track_count.unwrap_or(1),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct WorkerIds {
+    pub track: usize,
+    pub album: usize,
+}
+
+impl fmt::Display for WorkerIds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[WORKER {}-{}]", self.album, self.track)
+    }
 }
 
 #[derive(Deserialize)]

@@ -36,6 +36,8 @@ Options:
   -f, --file <FILE>                    files to read URLs from
   -o, --output <OUTPUT>                custom path to download to
       --country <COUNTRY>              country to use accounts from [default: auto]
+      --no-metadata                    disable metadata embedding by lucida
+      --private                        hide tracks from recent downloads on lucida
       --album-workers <ALBUM_WORKERS>  amount of albums to download simultaneously [default: 1]
       --track-workers <TRACK_WORKERS>  amount of tracks to download simultaneously for each album [default: 4]
       --skip-tracks                    skip downloading tracks in the album

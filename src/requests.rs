@@ -7,8 +7,8 @@ use reqwest::{Client, StatusCode, Url};
 use tokio::time;
 
 use crate::models::{
-    Account, Token, Track, TrackDownload, TrackDownloadRequest, TrackDownloadResult,
-    TrackDownloadStatus, Upload,
+    Account, DownloadConfig, Token, Track, TrackDownload, TrackDownloadRequest,
+    TrackDownloadResult, TrackDownloadStatus, Upload, WorkerIds,
 };
 
 pub async fn resolve_album(
@@ -51,23 +51,22 @@ pub async fn request_track_download(
     client: &Client,
     track: &Track,
     token_expiry: u64,
-    country: &str,
-    album_worker: usize,
-    track_worker: usize,
+    config: &DownloadConfig,
+    workers: WorkerIds,
 ) -> TrackDownload {
     loop {
         let response = client
             .post("https://lucida.to/api/load?url=%2Fapi%2Ffetch%2Fstream%2Fv2")
             .json(&TrackDownloadRequest {
                 account: Account {
-                    id: country,
+                    id: &config.country,
                     r#type: "country",
                 },
                 compat: false,
                 downscale: "original",
                 handoff: true,
-                metadata: true,
-                private: false,
+                metadata: config.metadata,
+                private: config.private,
                 token: Token {
                     expiry: token_expiry,
                     primary: &track.csrf,
@@ -87,23 +86,19 @@ pub async fn request_track_download(
                 match track_download {
                     TrackDownloadResult::Ok(track_download) => break track_download,
                     TrackDownloadResult::Error { error, .. } => {
-                        eprintln!(
-                            "[WORKER {album_worker}-{track_worker}] error when requesting track download: {error}"
-                        );
+                        eprintln!("{workers} error when requesting track download: {error}");
 
                         time::sleep(Duration::from_secs(5)).await;
                     }
                 }
             } else {
-                eprintln!(
-                    "[WORKER {album_worker}-{track_worker}] invalid JSON when requesting track download"
-                );
+                eprintln!("{workers} invalid JSON when requesting track download");
 
                 time::sleep(Duration::from_secs(5)).await;
             }
         } else {
             eprintln!(
-                "[WORKER {album_worker}-{track_worker}] received code {} when requesting track download",
+                "{workers} received code {} when requesting track download",
                 status.as_u16()
             );
 
@@ -115,8 +110,7 @@ pub async fn request_track_download(
 pub async fn track_download_status(
     client: &Client,
     stream: &TrackDownload,
-    album_worker: usize,
-    track_worker: usize,
+    workers: WorkerIds,
 ) -> Option<TrackDownloadStatus> {
     loop {
         let response = client
@@ -135,7 +129,7 @@ pub async fn track_download_status(
         }
 
         eprintln!(
-            "[WORKER {album_worker}-{track_worker}] received code {} when checking track processing status",
+            "{workers} received code {} when checking track processing status",
             status.as_u16()
         );
 
@@ -150,8 +144,7 @@ pub async fn track_download_status(
 pub async fn download_track(
     client: &Client,
     stream: &TrackDownload,
-    album_worker: usize,
-    track_worker: usize,
+    workers: WorkerIds,
 ) -> Option<(Vec<u8>, String)> {
     loop {
         let response = client
@@ -174,14 +167,12 @@ pub async fn download_track(
             match response.bytes().await {
                 Ok(bytes) => break Some((bytes.to_vec(), mime_type)),
                 Err(err) => {
-                    eprintln!(
-                        "[WORKER {album_worker}-{track_worker}] error when downloading track audio: {err}"
-                    );
+                    eprintln!("{workers} error when downloading track audio: {err}");
                 }
             }
         } else {
             eprintln!(
-                "[WORKER {album_worker}-{track_worker}] received code {} when downloading track audio",
+                "{workers} received code {} when downloading track audio",
                 status.as_u16()
             );
 
