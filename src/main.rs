@@ -62,6 +62,7 @@ async fn main() {
             client.clone(),
             urls.clone(),
             output.clone(),
+            cli.flatten_directories,
             DownloadConfig {
                 country: cli.country.clone(),
                 metadata: !cli.no_metadata,

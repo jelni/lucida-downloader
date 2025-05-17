@@ -21,6 +21,7 @@ pub async fn download_album(
     client: Client,
     url: &str,
     output_path: &Path,
+    flatten_directories: bool,
     config: DownloadConfig,
     track_workers: usize,
     skip: SkipConfig,
@@ -38,11 +39,21 @@ pub async fn download_album(
         album.artist_name, album.title, album.track_count
     );
 
-    let album_path = PathBuf::from_iter([
-        output_path,
-        Path::new(&text_utils::sanitize_file_name(&album.artist_name)),
-        Path::new(&text_utils::sanitize_file_name(&album.title)),
-    ]);
+    let album_path = {
+        let sanitized_artist_name = text_utils::sanitize_file_name(&album.artist_name);
+        let sanitized_album_title = text_utils::sanitize_file_name(&album.title);
+
+        let album_directory = if flatten_directories {
+            vec![format!("{sanitized_artist_name} - {sanitized_album_title}")]
+        } else {
+            vec![sanitized_artist_name, sanitized_album_title]
+        };
+
+        let mut album_path = PathBuf::from(output_path);
+        album_path.extend(album_directory);
+
+        album_path
+    };
 
     fs::create_dir_all(&album_path).unwrap();
 

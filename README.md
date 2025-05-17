@@ -35,6 +35,7 @@ Arguments:
 Options:
   -f, --file <FILE>                    files to read URLs from
   -o, --output <OUTPUT>                custom path to download to
+      --flatten-directories            use "<artist> - <album>" format instead of separate "<artist>/<album>" directories
       --country <COUNTRY>              country to use accounts from [default: auto]
       --no-metadata                    disable metadata embedding by lucida
       --private                        hide tracks from recent downloads on lucida

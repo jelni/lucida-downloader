@@ -19,6 +19,11 @@ pub struct Cli {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// use "<artist> - <album>" format instead of separate "<artist>/<album>"
+    /// directories
+    #[arg(long)]
+    pub flatten_directories: bool,
+
     /// country to use accounts from
     #[arg(long, default_value_t = String::from("auto"))]
     pub country: String,
