@@ -1,8 +1,9 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Parser)]
@@ -19,7 +20,11 @@ pub struct Cli {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
-    /// use "<artist> - <album>" format instead of separate "<artist>/<album>"
+    /// use "<album> (year)" or "(year) <album>" directory name
+    #[arg(value_enum, long)]
+    pub album_year: Option<AlbumYear>,
+
+    /// use "<artist> - <album>" format instead of nested "<artist>/<album>"
     /// directories
     #[arg(long)]
     pub flatten_directories: bool,
@@ -53,6 +58,12 @@ pub struct Cli {
     pub skip_cover: bool,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+pub enum AlbumYear {
+    Append,
+    Prepend,
+}
+
 #[derive(Clone)]
 pub struct DownloadConfig {
     pub country: String,
@@ -68,6 +79,7 @@ pub struct SkipConfig {
 
 pub struct AlbumInfo {
     pub title: String,
+    pub release_year: u16,
     pub cover_artwork_url: String,
     pub artist_name: String,
     pub tracks: Vec<(Option<u32>, Track)>,
@@ -82,9 +94,11 @@ impl AlbumInfo {
                 mut cover_artwork,
                 mut artists,
                 track_count,
+                release_date,
                 tracks,
             } => Self {
                 title,
+                release_year: release_date.year().try_into().unwrap(),
                 cover_artwork_url: cover_artwork.pop().unwrap().url,
                 artist_name: artists
                     .pop()
@@ -105,6 +119,7 @@ impl AlbumInfo {
                 producers,
             } => Self {
                 title: album.title,
+                release_year: album.release_date.year().try_into().unwrap(),
                 cover_artwork_url: album.cover_artwork.pop().unwrap().url,
                 artist_name: album.artists.pop().map_or_else(
                     || artists.last().unwrap().name.clone(),
@@ -158,6 +173,8 @@ pub enum Info {
         cover_artwork: Vec<CoverArtwork>,
         artists: Vec<Artist>,
         track_count: u32,
+        #[serde(with = "time::serde::rfc3339")]
+        release_date: OffsetDateTime,
         tracks: Vec<Track>,
     },
     Track {
@@ -197,6 +214,8 @@ pub struct Album {
     pub cover_artwork: Vec<CoverArtwork>,
     pub artists: Vec<Artist>,
     pub track_count: Option<u32>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub release_date: OffsetDateTime,
 }
 
 #[derive(Clone, Copy, Deserialize)]

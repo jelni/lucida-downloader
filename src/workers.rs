@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::Client;
 
 use crate::downloaders;
-use crate::models::{DownloadConfig, Service, SkipConfig, Track, WorkerIds};
+use crate::models::{AlbumYear, DownloadConfig, Service, SkipConfig, Track, WorkerIds};
 
 #[expect(
     clippy::too_many_arguments,
@@ -15,6 +15,7 @@ pub async fn run_album_worker(
     client: Client,
     urls: Arc<Mutex<Vec<String>>>,
     output_path: PathBuf,
+    album_year: Option<AlbumYear>,
     flatten_directories: bool,
     config: DownloadConfig,
     track_workers: usize,
@@ -32,6 +33,7 @@ pub async fn run_album_worker(
             client.clone(),
             &url,
             &output_path,
+            album_year,
             flatten_directories,
             config.clone(),
             track_workers,

@@ -62,6 +62,7 @@ async fn main() {
             client.clone(),
             urls.clone(),
             output.clone(),
+            cli.album_year,
             cli.flatten_directories,
             DownloadConfig {
                 country: cli.country.clone(),

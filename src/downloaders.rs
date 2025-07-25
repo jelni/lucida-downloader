@@ -10,7 +10,9 @@ use futures::future;
 use reqwest::Client;
 use tokio::time;
 
-use crate::models::{AlbumInfo, DownloadConfig, PageData, Service, SkipConfig, Track, WorkerIds};
+use crate::models::{
+    AlbumInfo, AlbumYear, DownloadConfig, PageData, Service, SkipConfig, Track, WorkerIds,
+};
 use crate::{requests, text_utils, workers};
 
 #[expect(
@@ -21,6 +23,7 @@ pub async fn download_album(
     client: Client,
     url: &str,
     output_path: &Path,
+    album_year: Option<AlbumYear>,
     flatten_directories: bool,
     config: DownloadConfig,
     track_workers: usize,
@@ -43,10 +46,20 @@ pub async fn download_album(
         let sanitized_artist_name = text_utils::sanitize_file_name(&album.artist_name);
         let sanitized_album_title = text_utils::sanitize_file_name(&album.title);
 
+        let album_directory = match album_year {
+            Some(AlbumYear::Append) => {
+                format!("{} ({})", sanitized_album_title, album.release_year)
+            }
+            Some(AlbumYear::Prepend) => {
+                format!("({}) {}", album.release_year, sanitized_album_title)
+            }
+            None => sanitized_album_title,
+        };
+
         let album_directory = if flatten_directories {
-            vec![format!("{sanitized_artist_name} - {sanitized_album_title}")]
+            vec![format!("{sanitized_artist_name} - {album_directory}")]
         } else {
-            vec![sanitized_artist_name, sanitized_album_title]
+            vec![sanitized_artist_name, album_directory]
         };
 
         let mut album_path = PathBuf::from(output_path);
@@ -196,16 +209,16 @@ pub async fn download_track(
                     track_download.message,
                     Instant::now(),
                 ));
-            } else if let Some(last_status) = last_status.as_ref() {
-                if last_status.2.elapsed() >= Duration::from_secs(30) {
-                    eprintln!(
-                        "{workers} download status stuck for 30 seconds on {}: {}, retrying",
-                        last_status.0,
-                        last_status.1.replace("{item}", &track.title)
-                    );
+            } else if let Some(last_status) = last_status.as_ref()
+                && last_status.2.elapsed() >= Duration::from_secs(30)
+            {
+                eprintln!(
+                    "{workers} download status stuck for 30 seconds on {}: {}, retrying",
+                    last_status.0,
+                    last_status.1.replace("{item}", &track.title)
+                );
 
-                    continue 'track_download;
-                }
+                continue 'track_download;
             }
 
             if track_download.status == "completed" {
