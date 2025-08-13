@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, StatusCode, Url};
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::time;
 
 use crate::models::{
@@ -145,9 +146,9 @@ pub async fn download_track(
     client: &Client,
     stream: &TrackDownload,
     workers: WorkerIds,
-) -> Option<(Vec<u8>, String)> {
+) -> Option<(UnboundedReceiver<Result<Vec<u8>, ()>>, String)> {
     loop {
-        let response = client
+        let mut response = client
             .get(format!(
                 "https://{}.lucida.to/api/fetch/request/{}/download",
                 stream.server, stream.handoff
@@ -164,24 +165,39 @@ pub async fn download_track(
                 .unwrap()
                 .to_owned();
 
-            match response.bytes().await {
-                Ok(bytes) => break Some((bytes.to_vec(), mime_type)),
-                Err(err) => {
-                    eprintln!("{workers} error when downloading track audio: {err}");
+            let (tx, rx) = mpsc::unbounded_channel();
+
+            tokio::spawn(async move {
+                loop {
+                    let result = response.chunk().await;
+
+                    match result {
+                        Ok(chunk) => match chunk {
+                            Some(chunk) => tx.send(Ok(chunk.to_vec())).unwrap(),
+                            None => break,
+                        },
+                        Err(err) => {
+                            eprintln!("{workers} error when downloading track audio: {err}");
+                            tx.send(Err(())).unwrap();
+                            break;
+                        }
+                    }
                 }
-            }
-        } else {
-            eprintln!(
-                "{workers} received code {} when downloading track audio",
-                status.as_u16()
-            );
+            });
 
-            if status == StatusCode::INTERNAL_SERVER_ERROR {
-                break None;
-            }
-
-            time::sleep(Duration::from_secs(5)).await;
+            break Some((rx, mime_type));
         }
+
+        eprintln!(
+            "{workers} received code {} when downloading track audio",
+            status.as_u16()
+        );
+
+        if status == StatusCode::INTERNAL_SERVER_ERROR {
+            break None;
+        }
+
+        time::sleep(Duration::from_secs(5)).await;
     }
 }
 
@@ -189,17 +205,39 @@ pub async fn download_album_cover(
     client: &Client,
     url: &str,
     album_worker: usize,
-) -> Option<Vec<u8>> {
+) -> Option<UnboundedReceiver<Result<Vec<u8>, ()>>> {
     loop {
-        let response = client.get(url).send().await.unwrap();
-
+        let mut response = client.get(url).send().await.unwrap();
         let status = response.status();
 
         if status == StatusCode::OK {
-            break Some(response.bytes().await.unwrap().to_vec());
+            let (tx, rx) = mpsc::unbounded_channel();
+
+            tokio::spawn(async move {
+                loop {
+                    let result = response.chunk().await;
+
+                    match result {
+                        Ok(chunk) => match chunk {
+                            Some(chunk) => tx.send(Ok(chunk.to_vec())).unwrap(),
+                            None => break,
+                        },
+                        Err(err) => {
+                            eprintln!(
+                                "[WORKER {album_worker}] error when downloading album cover: {err}"
+                            );
+
+                            tx.send(Err(())).unwrap();
+                            break;
+                        }
+                    }
+                }
+            });
+
+            break Some(rx);
         } else if status == StatusCode::NOT_FOUND {
             eprintln!("[WORKER {album_worker}] album doesn't have a cover");
-            return None;
+            break None;
         }
 
         eprintln!(

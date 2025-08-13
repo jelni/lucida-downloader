@@ -175,13 +175,12 @@ pub async fn download_track(
     // to download yet
     if matches!(service, Service::Qobuz) && track.producers.is_none() {
         eprintln!("{workers} skipping unavailable track {}", track.title);
-
         return;
     }
 
     eprintln!("{workers} downloading track {}", track.title);
 
-    let (download, mime_type) = 'track_download: loop {
+    'request_track_download: loop {
         let track_download =
             requests::request_track_download(&client, track, token_expiry, config, workers).await;
 
@@ -191,7 +190,7 @@ pub async fn download_track(
             let Some(track_download) =
                 requests::track_download_status(&client, &track_download, workers).await
             else {
-                continue 'track_download;
+                continue 'request_track_download;
             };
 
             if last_status.as_ref().is_none_or(|last_status| {
@@ -218,7 +217,7 @@ pub async fn download_track(
                     last_status.1.replace("{item}", &track.title)
                 );
 
-                continue 'track_download;
+                continue 'request_track_download;
             }
 
             if track_download.status == "completed" {
@@ -228,45 +227,58 @@ pub async fn download_track(
             time::sleep(Duration::from_secs(1)).await;
         }
 
-        let Some(track) = requests::download_track(&client, &track_download, workers).await else {
-            continue 'track_download;
-        };
+        'download_track: loop {
+            let Some((mut rx, mime_type)) =
+                requests::download_track(&client, &track_download, workers).await
+            else {
+                continue 'request_track_download;
+            };
 
-        break track;
-    };
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_precision_loss,
+                clippy::cast_sign_loss
+            )]
+            let track_number = track_number.map_or_else(String::new, |track_number| {
+                format!(
+                    "{track_number:00$}. ",
+                    (track_count as f32).log10().floor() as usize + 1
+                )
+            });
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )]
-    let track_number = track_number.map_or_else(String::new, |track_number| {
-        format!(
-            "{track_number:00$}. ",
-            (track_count as f32).log10().floor() as usize + 1
-        )
-    });
+            let artist = if let [artist, ..] = track.artists.as_slice() {
+                format!("{} - ", text_utils::sanitize_file_name(&artist.name))
+            } else {
+                String::new()
+            };
 
-    let artist = if let [artist, ..] = track.artists.as_slice() {
-        format!("{} - ", text_utils::sanitize_file_name(&artist.name))
-    } else {
-        String::new()
-    };
+            let file_extension = match mime_type.as_str() {
+                "audio/flac" => "flac",
+                _ => panic!("unsupported mime type {mime_type}"),
+            };
 
-    let file_extension = match mime_type.as_str() {
-        "audio/flac" => "flac",
-        _ => panic!("unsupported mime type {mime_type}"),
-    };
+            let file_name = format!(
+                "{track_number}{artist}{}.{}",
+                text_utils::sanitize_file_name(&track.title),
+                file_extension
+            );
 
-    let file_name = format!(
-        "{track_number}{artist}{}.{}",
-        text_utils::sanitize_file_name(&track.title),
-        file_extension
-    );
+            let part_path = album_path.join(format!("{file_name}.part"));
+            let mut file = BufWriter::new(File::create(&part_path).unwrap());
 
-    let track_path = album_path.join(&file_name);
-    let mut file = BufWriter::new(File::create_new(&track_path).unwrap());
-    file.write_all(&download).unwrap();
+            while let Some(result) = rx.recv().await {
+                match result {
+                    Ok(chunk) => file.write_all(&chunk).unwrap(),
+                    Err(()) => continue 'download_track,
+                }
+            }
+
+            fs::rename(part_path, album_path.join(&file_name)).unwrap();
+            break;
+        }
+
+        break;
+    }
 }
 
 pub async fn download_album_cover(
@@ -288,12 +300,25 @@ pub async fn download_album_cover(
         Service::Tidal => Cow::Borrowed(url),
     };
 
-    let Some(cover) = requests::download_album_cover(&client, &url, album_worker).await else {
-        return;
-    };
+    let part_path = album_path.join("cover.jpg.part");
 
-    File::create_new(album_path.join("cover.jpg"))
-        .unwrap()
-        .write_all(&cover)
-        .unwrap();
+    'download_album_cover: loop {
+        let Some(mut rx) = requests::download_album_cover(&client, &url, album_worker).await else {
+            return;
+        };
+
+        let mut file = BufWriter::new(File::create(&part_path).unwrap());
+
+        while let Some(chunk) = rx.recv().await {
+            match chunk {
+                Ok(chunk) => file.write_all(&chunk).unwrap(),
+                Err(()) => continue 'download_album_cover,
+            }
+        }
+
+        file.flush().unwrap();
+        break;
+    }
+
+    fs::rename(part_path, album_path.join("cover.jpg")).unwrap();
 }
