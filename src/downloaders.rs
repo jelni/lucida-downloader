@@ -23,6 +23,7 @@ pub async fn download_album(
     client: Client,
     url: &str,
     output_path: &Path,
+    force_download: bool,
     album_year: Option<AlbumYear>,
     flatten_directories: bool,
     config: DownloadConfig,
@@ -86,6 +87,7 @@ pub async fn download_album(
                 tracks.clone(),
                 album.track_count,
                 page_data.token_expiry,
+                force_download,
                 config.clone(),
                 album_path.clone(),
                 WorkerIds {
@@ -106,6 +108,7 @@ pub async fn download_album(
             &album.title,
             page_data.original_service,
             &album.cover_artwork_url,
+            force_download,
             &album_path,
             album_worker,
         )
@@ -167,6 +170,7 @@ pub async fn download_track(
     track_number: Option<u32>,
     track_count: u32,
     token_expiry: u64,
+    force_download: bool,
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
     workers: WorkerIds,
@@ -175,6 +179,23 @@ pub async fn download_track(
     // to download yet
     if matches!(service, Service::Qobuz) && track.producers.is_none() {
         eprintln!("{workers} skipping unavailable track {}", track.title);
+        return;
+    }
+
+    let file_stem = text_utils::format_track_stem(track, track_number, track_count);
+
+    if !force_download
+        && fs::read_dir(album_path.as_path()).unwrap().any(|entry| {
+            let entry = entry.unwrap();
+
+            entry.file_type().unwrap().is_file()
+                && entry
+                    .path()
+                    .file_stem()
+                    .is_some_and(|stem| stem.to_str().unwrap() == file_stem)
+        })
+    {
+        eprintln!("{workers} track {} is already downloaded", track.title);
         return;
     }
 
@@ -234,35 +255,12 @@ pub async fn download_track(
                 continue 'request_track_download;
             };
 
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_precision_loss,
-                clippy::cast_sign_loss
-            )]
-            let track_number = track_number.map_or_else(String::new, |track_number| {
-                format!(
-                    "{track_number:00$}. ",
-                    (track_count as f32).log10().floor() as usize + 1
-                )
-            });
-
-            let artist = if let [artist, ..] = track.artists.as_slice() {
-                format!("{} - ", text_utils::sanitize_file_name(&artist.name))
-            } else {
-                String::new()
-            };
-
             let file_extension = match mime_type.as_str() {
                 "audio/flac" => "flac",
                 _ => panic!("unsupported mime type {mime_type}"),
             };
 
-            let file_name = format!(
-                "{track_number}{artist}{}.{}",
-                text_utils::sanitize_file_name(&track.title),
-                file_extension
-            );
-
+            let file_name = format!("{file_stem}.{file_extension}");
             let part_path = album_path.join(format!("{file_name}.part"));
             let mut file = BufWriter::new(File::create(&part_path).unwrap());
 
@@ -273,7 +271,7 @@ pub async fn download_track(
                 }
             }
 
-            fs::rename(part_path, album_path.join(&file_name)).unwrap();
+            fs::rename(part_path, album_path.join(file_name)).unwrap();
             break;
         }
 
@@ -286,9 +284,17 @@ pub async fn download_album_cover(
     title: &str,
     service: Service,
     url: &str,
+    force_download: bool,
     album_path: &Path,
     album_worker: usize,
 ) {
+    let cover_path = album_path.join("cover.jpg");
+
+    if !force_download && cover_path.exists() {
+        eprintln!("[WORKER {album_worker}] {title} album cover is already downloaded");
+        return;
+    }
+
     eprintln!("[WORKER {album_worker}] downloading {title} album cover");
 
     let url = match service {
@@ -320,5 +326,5 @@ pub async fn download_album_cover(
         break;
     }
 
-    fs::rename(part_path, album_path.join("cover.jpg")).unwrap();
+    fs::rename(part_path, cover_path).unwrap();
 }

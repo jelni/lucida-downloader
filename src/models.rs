@@ -20,6 +20,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
+    /// overwrite already downloaded files
+    #[arg(long)]
+    pub force: bool,
+
     /// use "<album> (year)" or "(year) <album>" directory name
     #[arg(value_enum, long)]
     pub album_year: Option<AlbumYear>,
