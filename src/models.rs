@@ -24,6 +24,11 @@ pub struct Cli {
     #[arg(long)]
     pub force: bool,
 
+    /// place all artist's singles in a "Singles" directory. their covers will
+    /// not be downloaded
+    #[arg(long)]
+    pub group_singles: bool,
+
     /// use "<album> (year)" or "(year) <album>" directory name
     #[arg(value_enum, long)]
     pub album_year: Option<AlbumYear>,

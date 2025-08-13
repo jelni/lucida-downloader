@@ -36,6 +36,7 @@ Options:
   -f, --file <FILE>                    files to read URLs from
   -o, --output <OUTPUT>                custom path to download to
       --force                          overwrite already downloaded files
+      --group-singles                  place all artist's singles in a "Singles" directory. their covers will not be downloaded
       --album-year <ALBUM_YEAR>        use "<album> (year)" or "(year) <album>" directory name [possible values: append, prepend]
       --flatten-directories            use "<artist> - <album>" format instead of nested "<artist>/<album>" directories
       --country <COUNTRY>              country to use accounts from [default: auto]

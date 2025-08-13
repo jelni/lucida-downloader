@@ -24,6 +24,7 @@ pub async fn download_album(
     url: &str,
     output_path: &Path,
     force_download: bool,
+    group_singles: bool,
     album_year: Option<AlbumYear>,
     flatten_directories: bool,
     config: DownloadConfig,
@@ -43,18 +44,30 @@ pub async fn download_album(
         album.artist_name, album.title, album.track_count
     );
 
+    let is_grouped_single = group_singles
+        && album.track_count == 1
+        && album
+            .tracks
+            .iter()
+            .all(|track| track.1.title == album.title);
+
     let album_path = {
         let sanitized_artist_name = text_utils::sanitize_file_name(&album.artist_name);
-        let sanitized_album_title = text_utils::sanitize_file_name(&album.title);
 
-        let album_directory = match album_year {
-            Some(AlbumYear::Append) => {
-                format!("{} ({})", sanitized_album_title, album.release_year)
+        let album_directory = if is_grouped_single {
+            "Singles".into()
+        } else {
+            let sanitized_album_title = text_utils::sanitize_file_name(&album.title);
+
+            match album_year {
+                Some(AlbumYear::Append) => {
+                    format!("{} ({})", sanitized_album_title, album.release_year)
+                }
+                Some(AlbumYear::Prepend) => {
+                    format!("({}) {}", album.release_year, sanitized_album_title)
+                }
+                None => sanitized_album_title,
             }
-            Some(AlbumYear::Prepend) => {
-                format!("({}) {}", album.release_year, sanitized_album_title)
-            }
-            None => sanitized_album_title,
         };
 
         let album_directory = if flatten_directories {
@@ -86,6 +99,7 @@ pub async fn download_album(
                 page_data.original_service,
                 tracks.clone(),
                 album.track_count,
+                is_grouped_single,
                 page_data.token_expiry,
                 force_download,
                 config.clone(),
@@ -102,7 +116,7 @@ pub async fn download_album(
         }
     }
 
-    if !skip.cover {
+    if !skip.cover && !is_grouped_single {
         download_album_cover(
             client,
             &album.title,
@@ -169,6 +183,7 @@ pub async fn download_track(
     track: &Track,
     track_number: Option<u32>,
     track_count: u32,
+    is_grouped_single: bool,
     token_expiry: u64,
     force_download: bool,
     config: &DownloadConfig,
@@ -182,7 +197,8 @@ pub async fn download_track(
         return;
     }
 
-    let file_stem = text_utils::format_track_stem(track, track_number, track_count);
+    let file_stem =
+        text_utils::format_track_stem(track, track_number, track_count, is_grouped_single);
 
     if !force_download
         && fs::read_dir(album_path.as_path()).unwrap().any(|entry| {

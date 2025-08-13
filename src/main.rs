@@ -63,6 +63,7 @@ async fn main() {
             urls.clone(),
             output.clone(),
             cli.force,
+            cli.group_singles,
             cli.album_year,
             cli.flatten_directories,
             DownloadConfig {
