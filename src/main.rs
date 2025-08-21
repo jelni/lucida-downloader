@@ -6,18 +6,19 @@ use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use futures::future;
-use models::{Cli, DownloadConfig, SkipConfig};
+use lucida_downloader::models::{Cli, DownloadConfig, SkipConfig};
+use lucida_downloader::{app, workers};
 use reqwest::Client;
 use tokio::signal;
 
-mod downloaders;
-mod models;
-mod requests;
-mod text_utils;
-mod workers;
+fn main() {
+    let mut terminal = ratatui::init();
+    app::App::new().run(&mut terminal);
+    ratatui::restore();
+}
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+#[cfg(false)]
+async fn old_main() {
     let cli = Cli::parse();
 
     let mut urls = cli.urls;
