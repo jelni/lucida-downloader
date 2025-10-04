@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use clap::Parser;
 use futures::future;
 use models::{Cli, DownloadConfig, SkipConfig};
-use reqwest::Client;
+use reqwest::cookie::Jar;
+use reqwest::{ClientBuilder, Url};
 use tokio::signal;
 
 mod downloaders;
@@ -41,7 +42,15 @@ async fn main() {
 
     eprintln!("downloading {urls_len} albums");
 
-    let client = Client::new();
+    let cookie = format!("cf_clearance={}; Domain=lucida.to", cli.cookie);
+    let url = "https://lucida.to".parse::<Url>().unwrap();
+    let jar = Jar::default();
+    jar.add_cookie_str(&cookie, &url);
+    let client = ClientBuilder::new()
+        .user_agent(&cli.user_agent)
+        .cookie_provider(jar.into())
+        .build()
+        .unwrap();
     let urls = Arc::new(Mutex::new(urls));
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();

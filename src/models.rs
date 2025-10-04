@@ -16,6 +16,14 @@ pub struct Cli {
     #[arg(short, long)]
     pub file: Vec<PathBuf>,
 
+    /// cf_clearance cookie
+    #[arg(short, long)]
+    pub cookie: String,
+
+    /// user agent
+    #[arg(short, long)]
+    pub user_agent: String,
+
     /// custom path to download to
     #[arg(short, long)]
     pub output: Option<PathBuf>,
