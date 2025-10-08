@@ -46,6 +46,8 @@ Options:
       --track-workers <TRACK_WORKERS>  amount of tracks to download simultaneously for each album [default: 4]
       --skip-tracks                    skip downloading tracks in the album
       --skip-cover                     skip downloading album cover
+      --cf-clearance <CF_CLEARANCE>    set the cf_clearance cookie and the User-Agent header if Cloudflare is blocking your requests
+      --user-agent <USER_AGENT>        the User-Agent header to use
   -h, --help                           Print help
 ```
 

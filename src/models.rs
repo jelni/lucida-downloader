@@ -65,6 +65,15 @@ pub struct Cli {
     /// skip downloading album cover
     #[arg(long)]
     pub skip_cover: bool,
+
+    /// set the `cf_clearance` cookie and the User-Agent header if Cloudflare is
+    /// blocking your requests
+    #[arg(long)]
+    pub cf_clearance: Option<String>,
+
+    /// the User-Agent header to use
+    #[arg(long)]
+    pub user_agent: Option<String>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
