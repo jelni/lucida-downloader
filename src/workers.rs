@@ -66,9 +66,10 @@ pub async fn run_track_worker(
     force_download: bool,
     config: DownloadConfig,
     album_path: Arc<PathBuf>,
+    running: Arc<AtomicBool>,
     workers: WorkerIds,
 ) {
-    loop {
+    while running.load(Ordering::Relaxed) {
         let Some((track_number, track)) = tracks.lock().unwrap().pop() else {
             return;
         };
@@ -84,6 +85,7 @@ pub async fn run_track_worker(
             force_download,
             &config,
             album_path.clone(),
+            running.clone(),
             workers,
         )
         .await;

@@ -104,6 +104,7 @@ pub async fn download_album(
                 force_download,
                 config.clone(),
                 album_path.clone(),
+                running.clone(),
                 WorkerIds {
                     track: track_worker,
                     album: album_worker,
@@ -116,18 +117,20 @@ pub async fn download_album(
         }
     }
 
-    if !skip.cover && !is_grouped_single {
-        download_album_cover(
-            client,
-            &album.title,
-            page_data.original_service,
-            &album.cover_artwork_url,
-            force_download,
-            &album_path,
-            album_worker,
-        )
-        .await;
+    if skip.cover || is_grouped_single || !running.load(Ordering::Relaxed) {
+        return;
     }
+
+    download_album_cover(
+        client,
+        &album.title,
+        page_data.original_service,
+        &album.cover_artwork_url,
+        force_download,
+        &album_path,
+        album_worker,
+    )
+    .await;
 }
 
 async fn resolve_album(
@@ -188,6 +191,7 @@ pub async fn download_track(
     force_download: bool,
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
+    running: Arc<AtomicBool>,
     workers: WorkerIds,
 ) {
     // HACK(jel): this seems to be the only way to detect tracks that are impossible
@@ -218,8 +222,18 @@ pub async fn download_track(
     eprintln!("{workers} downloading track {}", track.title);
 
     'request_track_download: loop {
-        let track_download =
-            requests::request_track_download(&client, track, token_expiry, config, workers).await;
+        let Some(track_download) = requests::request_track_download(
+            &client,
+            track,
+            token_expiry,
+            config,
+            running.clone(),
+            workers,
+        )
+        .await
+        else {
+            break;
+        };
 
         let mut last_status: Option<(String, String, Instant)> = None;
 
@@ -248,11 +262,18 @@ pub async fn download_track(
             } else if let Some(last_status) = last_status.as_ref()
                 && last_status.2.elapsed() >= Duration::from_secs(30)
             {
-                eprintln!(
-                    "{workers} download status stuck for 30 seconds on {}: {}, retrying",
+                eprint!(
+                    "{workers} download status stuck for 30 seconds on {}: {}",
                     last_status.0,
                     last_status.1.replace("{item}", &track.title)
                 );
+
+                if !running.load(Ordering::Relaxed) {
+                    eprintln!();
+                    return;
+                } else {
+                    eprintln!(", retrying");
+                }
 
                 continue 'request_track_download;
             }

@@ -41,7 +41,7 @@ pub async fn resolve_album(
         );
 
         if !running.load(Ordering::Relaxed) {
-            return None;
+            break None;
         }
 
         time::sleep(Duration::from_secs(5)).await;
@@ -53,8 +53,9 @@ pub async fn request_track_download(
     track: &Track,
     token_expiry: u64,
     config: &DownloadConfig,
+    running: Arc<AtomicBool>,
     workers: WorkerIds,
-) -> TrackDownload {
+) -> Option<TrackDownload> {
     loop {
         let response = client
             .post("https://lucida.to/api/load?url=%2Fapi%2Ffetch%2Fstream%2Fv2")
@@ -85,15 +86,23 @@ pub async fn request_track_download(
         if status == StatusCode::OK {
             if let Ok(track_download) = response.json().await {
                 match track_download {
-                    TrackDownloadResult::Ok(track_download) => break track_download,
+                    TrackDownloadResult::Ok(track_download) => break Some(track_download),
                     TrackDownloadResult::Error { error, .. } => {
                         eprintln!("{workers} error when requesting track download: {error}");
+
+                        if !running.load(Ordering::Relaxed) {
+                            break None;
+                        }
 
                         time::sleep(Duration::from_secs(5)).await;
                     }
                 }
             } else {
                 eprintln!("{workers} invalid JSON when requesting track download");
+
+                if !running.load(Ordering::Relaxed) {
+                    break None;
+                }
 
                 time::sleep(Duration::from_secs(5)).await;
             }
@@ -102,6 +111,10 @@ pub async fn request_track_download(
                 "{workers} received code {} when requesting track download",
                 status.as_u16()
             );
+
+            if !running.load(Ordering::Relaxed) {
+                break None;
+            }
 
             time::sleep(Duration::from_secs(5)).await;
         }
