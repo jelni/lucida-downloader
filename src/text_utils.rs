@@ -3,7 +3,8 @@ use std::borrow::Cow;
 use crate::models::Track;
 
 pub fn sanitize_file_name(name: &str) -> String {
-    name.replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_")
+    name.trim_ascii()
+        .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_")
 }
 
 pub fn parse_enclosed_value<'a>(start_marker: &str, end_marker: &str, text: &'a str) -> &'a str {
