@@ -271,8 +271,14 @@ pub async fn download_track(
                 continue 'request_track_download;
             };
 
-            let file_extension = match mime_type.as_str() {
+            let file_extension = match mime_type
+                .split_once(';')
+                .map(|(mime_type, _)| mime_type)
+                .unwrap_or(&mime_type)
+            {
                 "audio/flac" => "flac",
+                "audio/mpeg" => "mp3",
+                "audio/mp4" => "m4a",
                 _ => panic!("unsupported mime type {mime_type}"),
             };
 
@@ -319,7 +325,7 @@ pub async fn download_album_cover(
             let end_index = stripped_url.rfind('_').unwrap() + 1;
             Cow::Owned(format!("{}org.jpg", &url[..end_index]))
         }
-        Service::Tidal => Cow::Borrowed(url),
+        Service::Tidal | Service::Soundcloud => Cow::Borrowed(url),
     };
 
     let part_path = album_path.join("cover.jpg.part");

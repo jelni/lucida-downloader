@@ -132,17 +132,34 @@ impl AlbumInfo {
             Info::Track {
                 url,
                 title,
+                cover_artwork,
                 artists,
                 mut album,
+                release_date,
                 producers,
             } => Self {
-                title: album.title,
-                release_year: album.release_date.year().try_into().unwrap(),
-                cover_artwork_url: album.cover_artwork.pop().unwrap().url,
-                artist_name: album.artists.pop().map_or_else(
-                    || artists.last().unwrap().name.clone(),
-                    |artist| artist.name,
-                ),
+                title: album
+                    .as_ref()
+                    .map(|album| album.title.clone())
+                    .unwrap_or_else(|| title.clone()),
+                release_year: album
+                    .as_ref()
+                    .map(|album| album.release_date)
+                    .unwrap_or_else(|| release_date.unwrap())
+                    .year()
+                    .try_into()
+                    .unwrap(),
+                cover_artwork_url: album
+                    .as_mut()
+                    .map(|album| album.cover_artwork.pop())
+                    .unwrap_or_else(|| cover_artwork.unwrap().pop())
+                    .unwrap()
+                    .url,
+                artist_name: album
+                    .as_mut()
+                    .map(|album| album.artists.swap_remove(0))
+                    .unwrap_or_else(|| artists[0].clone())
+                    .name,
                 tracks: vec![(
                     None,
                     Track {
@@ -154,7 +171,7 @@ impl AlbumInfo {
                         csrf_fallback: None,
                     },
                 )],
-                track_count: album.track_count.unwrap_or(1),
+                track_count: album.and_then(|album| album.track_count).unwrap_or(1),
             },
         }
     }
@@ -195,11 +212,15 @@ pub enum Info {
         release_date: OffsetDateTime,
         tracks: Vec<Track>,
     },
+    #[serde(rename_all = "camelCase")]
     Track {
         url: String,
         title: String,
+        cover_artwork: Option<Vec<CoverArtwork>>,
         artists: Vec<Artist>,
-        album: Album,
+        album: Option<Album>,
+        #[serde(with = "time::serde::rfc3339::option")]
+        release_date: Option<OffsetDateTime>,
         producers: Option<Vec<String>>,
     },
 }
@@ -209,7 +230,7 @@ pub struct CoverArtwork {
     pub url: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Artist {
     pub name: String,
 }
@@ -241,6 +262,7 @@ pub struct Album {
 pub enum Service {
     Qobuz,
     Tidal,
+    Soundcloud,
 }
 
 #[expect(clippy::struct_excessive_bools)]
