@@ -12,6 +12,9 @@ use crate::models::{
     TrackDownloadResult, TrackDownloadStatus, Upload, WorkerIds,
 };
 
+const IRRECOVERABLE_STATUS_CODES: [StatusCode; 2] =
+    [StatusCode::NOT_FOUND, StatusCode::INTERNAL_SERVER_ERROR];
+
 pub async fn resolve_album(
     client: &Client,
     url: &str,
@@ -147,7 +150,7 @@ pub async fn track_download_status(
             status.as_u16()
         );
 
-        if status == StatusCode::INTERNAL_SERVER_ERROR {
+        if IRRECOVERABLE_STATUS_CODES.contains(&status) {
             break None;
         }
 
@@ -206,7 +209,7 @@ pub async fn download_track(
             status.as_u16()
         );
 
-        if status == StatusCode::INTERNAL_SERVER_ERROR {
+        if IRRECOVERABLE_STATUS_CODES.contains(&status) {
             break None;
         }
 
