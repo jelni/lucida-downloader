@@ -230,6 +230,7 @@ pub async fn download_track(
 pub async fn download_album_cover(
     client: &Client,
     url: &str,
+    running: Arc<AtomicBool>,
     album_worker: usize,
 ) -> Option<UnboundedReceiver<Result<Vec<u8>, ()>>> {
     loop {
@@ -270,5 +271,9 @@ pub async fn download_album_cover(
             "[WORKER {album_worker}] received code {} when downloading album cover from {url}",
             status.as_u16()
         );
+
+        if !running.load(Ordering::Relaxed) {
+            return None;
+        }
     }
 }

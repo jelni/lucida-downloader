@@ -129,6 +129,7 @@ pub async fn download_album(
         &album.cover_artwork_url,
         force_download,
         &album_path,
+        running,
         album_worker,
     )
     .await;
@@ -375,6 +376,10 @@ async fn download_track(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this function is called from a single place"
+)]
 pub async fn download_album_cover(
     client: Client,
     title: &str,
@@ -382,6 +387,7 @@ pub async fn download_album_cover(
     url: &str,
     force_download: bool,
     album_path: &Path,
+    running: Arc<AtomicBool>,
     album_worker: usize,
 ) {
     let cover_path = album_path.join("cover.jpg");
@@ -405,16 +411,23 @@ pub async fn download_album_cover(
     let part_path = album_path.join("cover.jpg.part");
 
     'download_album_cover: loop {
-        let Some(mut rx) = requests::download_album_cover(&client, &url, album_worker).await else {
+        let Some(mut rx) =
+            requests::download_album_cover(&client, &url, running.clone(), album_worker).await
+        else {
             return;
         };
 
         let mut file = BufWriter::new(File::create(&part_path).unwrap());
 
         while let Some(chunk) = rx.recv().await {
-            match chunk {
-                Ok(chunk) => file.write_all(&chunk).unwrap(),
-                Err(()) => continue 'download_album_cover,
+            if let Ok(chunk) = chunk {
+                file.write_all(&chunk).unwrap()
+            } else {
+                if !running.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                continue 'download_album_cover;
             }
         }
 
