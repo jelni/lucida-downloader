@@ -8,12 +8,22 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::time;
 
 use crate::models::{
-    Account, DownloadConfig, Token, Track, TrackDownload, TrackDownloadRequest,
+    Account, Availability, DownloadConfig, Token, Track, TrackDownload, TrackDownloadRequest,
     TrackDownloadResult, TrackDownloadStatus, Upload, WorkerIds,
 };
 
 const IRRECOVERABLE_STATUS_CODES: [StatusCode; 2] =
     [StatusCode::NOT_FOUND, StatusCode::INTERNAL_SERVER_ERROR];
+
+pub async fn check_availability(client: &Client) -> Availability {
+    let response = client.get("https://lucida.to/").send().await.unwrap();
+
+    match response.status() {
+        StatusCode::OK => Availability::Available,
+        StatusCode::FORBIDDEN => Availability::Captcha,
+        _ => Availability::Unavailable,
+    }
+}
 
 pub async fn resolve_album(
     client: &Client,

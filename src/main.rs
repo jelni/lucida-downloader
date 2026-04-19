@@ -1,15 +1,18 @@
-use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::{env, process};
 
 use clap::Parser;
 use futures::future;
-use models::{Cli, DownloadConfig, SkipConfig};
+use models::{BASE_URL, Cli, DownloadConfig, SkipConfig};
 use reqwest::ClientBuilder;
 use reqwest::header::{COOKIE, HeaderMap};
 use tokio::signal;
+
+use crate::models::Availability;
 
 mod downloaders;
 mod models;
@@ -17,8 +20,22 @@ mod requests;
 mod text_utils;
 mod workers;
 
+const CAPTCHA_PROMPT: &str = concat!(
+    "lucida requires you to complete a captcha!\n\n",
+    "1. Open a new tab in your browser\n",
+    "2. Open DevTools using F12 or Ctrl+Shift+I\n",
+    "3. Select the Network tab\n",
+    "4. Go to https://lucida.to/\n",
+    "5. Complete the captcha\n",
+    "6. Select one of the requests to lucida.to\n",
+    "7. In the Request Headers section locate the Cookie and User-Agent headers\n",
+    "8. Run the command again with two more arguments:\n",
+    "  - set --cf-clearance to the value of the cf_clearance cookie from the Cookie header\n",
+    "  - set --user-agent argument to the value of the User-Agent header; make sure to quote it!"
+);
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let mut urls = cli.urls;
@@ -35,21 +52,19 @@ async fn main() {
 
     if urls.is_empty() {
         eprintln!("no URLs to download");
-        return;
+        return ExitCode::FAILURE;
     }
 
     let urls_len = urls.len();
 
-    eprintln!("downloading {urls_len} albums");
-
     let client = {
         let mut client = ClientBuilder::new();
 
-        if let Some(user_agent) = cli.user_agent {
+        if let Some(user_agent) = &cli.user_agent {
             client = client.user_agent(user_agent);
         }
 
-        if let Some(cf_clearance) = cli.cf_clearance {
+        if let Some(cf_clearance) = &cli.cf_clearance {
             client = client.default_headers(HeaderMap::from_iter([(
                 COOKIE,
                 format!("cf_clearance={cf_clearance}").try_into().unwrap(),
@@ -58,6 +73,27 @@ async fn main() {
 
         client.build().unwrap()
     };
+
+    match requests::check_availability(&client).await {
+        Availability::Available => (),
+        Availability::Captcha => {
+            if cli.cf_clearance.is_some() && cli.user_agent.is_some() {
+                eprintln!(
+                    "Your cf_clearance cookie and User-Agent header weren't accepted. They might be stale"
+                );
+            } else {
+                eprintln!("{CAPTCHA_PROMPT}");
+            }
+
+            return ExitCode::FAILURE;
+        }
+        Availability::Unavailable => {
+            eprintln!("lucida seems to be unavailable right now. Visit the website: {BASE_URL}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    eprintln!("downloading {urls_len} albums");
 
     let urls = Arc::new(Mutex::new(urls));
     let running = Arc::new(AtomicBool::new(true));
@@ -103,4 +139,5 @@ async fn main() {
     }
 
     eprintln!("finished!");
+    ExitCode::SUCCESS
 }

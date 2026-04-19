@@ -5,6 +5,8 @@ use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+pub const BASE_URL: &str = "https://lucida.to/";
+
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Parser)]
 #[command(arg_required_else_help = true)]
@@ -80,6 +82,12 @@ pub struct Cli {
 pub enum AlbumYear {
     Append,
     Prepend,
+}
+
+pub enum Availability {
+    Available,
+    Captcha,
+    Unavailable,
 }
 
 #[derive(Clone)]
