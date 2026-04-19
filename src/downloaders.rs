@@ -269,6 +269,10 @@ async fn request_track_download(
             let Some(track_download) =
                 requests::track_download_status(&client, &track_download, workers).await
             else {
+                if !running.load(Ordering::Relaxed) {
+                    return;
+                }
+
                 continue 'request_track_download;
             };
 
@@ -312,7 +316,16 @@ async fn request_track_download(
             time::sleep(Duration::from_secs(1)).await;
         }
 
-        download_track(client, track_download, album_path, file_stem, workers).await;
+        download_track(
+            client,
+            track_download,
+            album_path,
+            file_stem,
+            running,
+            workers,
+        )
+        .await;
+
         break;
     }
 }
@@ -322,12 +335,17 @@ async fn download_track(
     track_download: TrackDownload,
     album_path: Arc<PathBuf>,
     file_stem: String,
+    running: Arc<AtomicBool>,
     workers: WorkerIds,
 ) {
     'download_track: loop {
         let Some((mut rx, mime_type)) =
             requests::download_track(&client, &track_download, workers).await
         else {
+            if !running.load(Ordering::Relaxed) {
+                return;
+            }
+
             continue;
         };
 

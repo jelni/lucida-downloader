@@ -106,6 +106,8 @@ async fn main() -> ExitCode {
         signal::ctrl_c().await.unwrap();
         running_clone.store(false, Ordering::Relaxed);
         eprintln!("Stopping gracefully");
+        signal::ctrl_c().await.unwrap();
+        process::exit(1);
     });
 
     let output = cli.output.unwrap_or_else(|| env::current_dir().unwrap());
