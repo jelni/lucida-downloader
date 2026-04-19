@@ -140,25 +140,24 @@ impl AlbumInfo {
             } => Self {
                 title: album
                     .as_ref()
-                    .map(|album| album.title.clone())
-                    .unwrap_or_else(|| title.clone()),
+                    .map_or_else(|| title.clone(), |album| album.title.clone()),
                 release_year: album
                     .as_ref()
-                    .map(|album| album.release_date)
-                    .unwrap_or_else(|| release_date.unwrap())
+                    .map_or_else(|| release_date.unwrap(), |album| album.release_date)
                     .year()
                     .try_into()
                     .unwrap(),
                 cover_artwork_url: album
                     .as_mut()
-                    .map(|album| album.cover_artwork.pop())
-                    .unwrap_or_else(|| cover_artwork.unwrap().pop())
+                    .map_or_else(
+                        || cover_artwork.unwrap().pop(),
+                        |album| album.cover_artwork.pop(),
+                    )
                     .unwrap()
                     .url,
                 artist_name: album
                     .as_mut()
-                    .map(|album| album.artists.swap_remove(0))
-                    .unwrap_or_else(|| artists[0].clone())
+                    .map_or_else(|| artists[0].clone(), |album| album.artists.swap_remove(0))
                     .name,
                 tracks: vec![(
                     None,

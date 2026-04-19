@@ -11,7 +11,8 @@ use reqwest::Client;
 use tokio::time;
 
 use crate::models::{
-    AlbumInfo, AlbumYear, DownloadConfig, PageData, Service, SkipConfig, Track, WorkerIds,
+    AlbumInfo, AlbumYear, DownloadConfig, PageData, Service, SkipConfig, Track, TrackDownload,
+    WorkerIds,
 };
 use crate::{requests, text_utils, workers};
 
@@ -180,7 +181,7 @@ async fn resolve_album(
     clippy::too_many_arguments,
     reason = "this function is called from a single place"
 )]
-pub async fn download_track(
+pub async fn request_and_download_track(
     client: Client,
     service: Service,
     track: &Track,
@@ -196,7 +197,7 @@ pub async fn download_track(
 ) {
     // HACK(jel): this seems to be the only way to detect tracks that are impossible
     // to download yet
-    if matches!(service, Service::Qobuz) && track.producers.is_none() {
+    if matches!(service, Service::Qobuz if track.producers.is_none()) {
         eprintln!("{workers} skipping unavailable track {}", track.title);
         return;
     }
@@ -221,6 +222,33 @@ pub async fn download_track(
 
     eprintln!("{workers} downloading track {}", track.title);
 
+    request_track_download(
+        client,
+        track,
+        file_stem,
+        token_expiry,
+        config,
+        album_path,
+        running,
+        workers,
+    )
+    .await;
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this function is called from a single place"
+)]
+async fn request_track_download(
+    client: Client,
+    track: &Track,
+    file_stem: String,
+    token_expiry: u64,
+    config: &DownloadConfig,
+    album_path: Arc<PathBuf>,
+    running: Arc<AtomicBool>,
+    workers: WorkerIds,
+) {
     'request_track_download: loop {
         let Some(track_download) = requests::request_track_download(
             &client,
@@ -271,10 +299,9 @@ pub async fn download_track(
                 if !running.load(Ordering::Relaxed) {
                     eprintln!();
                     return;
-                } else {
-                    eprintln!(", retrying");
                 }
 
+                eprintln!(", retrying");
                 continue 'request_track_download;
             }
 
@@ -285,39 +312,47 @@ pub async fn download_track(
             time::sleep(Duration::from_secs(1)).await;
         }
 
-        'download_track: loop {
-            let Some((mut rx, mime_type)) =
-                requests::download_track(&client, &track_download, workers).await
-            else {
-                continue 'request_track_download;
-            };
+        download_track(client, track_download, album_path, file_stem, workers).await;
+        break;
+    }
+}
 
-            let file_extension = match mime_type
-                .split_once(';')
-                .map(|(mime_type, _)| mime_type)
-                .unwrap_or(&mime_type)
-            {
-                "audio/flac" => "flac",
-                "audio/mpeg" => "mp3",
-                "audio/mp4" => "m4a",
-                _ => panic!("unsupported mime type {mime_type}"),
-            };
+async fn download_track(
+    client: Client,
+    track_download: TrackDownload,
+    album_path: Arc<PathBuf>,
+    file_stem: String,
+    workers: WorkerIds,
+) {
+    'download_track: loop {
+        let Some((mut rx, mime_type)) =
+            requests::download_track(&client, &track_download, workers).await
+        else {
+            continue;
+        };
 
-            let file_name = format!("{file_stem}.{file_extension}");
-            let part_path = album_path.join(format!("{file_name}.part"));
-            let mut file = BufWriter::new(File::create(&part_path).unwrap());
+        let file_extension = match mime_type
+            .split_once(';')
+            .map_or(mime_type.as_str(), |(mime_type, _)| mime_type)
+        {
+            "audio/flac" => "flac",
+            "audio/mpeg" => "mp3",
+            "audio/mp4" => "m4a",
+            _ => panic!("unsupported mime type {mime_type}"),
+        };
 
-            while let Some(result) = rx.recv().await {
-                match result {
-                    Ok(chunk) => file.write_all(&chunk).unwrap(),
-                    Err(()) => continue 'download_track,
-                }
+        let file_name = format!("{file_stem}.{file_extension}");
+        let part_path = album_path.join(format!("{file_name}.part"));
+        let mut file = BufWriter::new(File::create(&part_path).unwrap());
+
+        while let Some(result) = rx.recv().await {
+            match result {
+                Ok(chunk) => file.write_all(&chunk).unwrap(),
+                Err(()) => continue 'download_track,
             }
-
-            fs::rename(part_path, album_path.join(file_name)).unwrap();
-            break;
         }
 
+        fs::rename(part_path, album_path.join(file_name)).unwrap();
         break;
     }
 }

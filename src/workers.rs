@@ -74,7 +74,7 @@ pub async fn run_track_worker(
             return;
         };
 
-        downloaders::download_track(
+        downloaders::request_and_download_track(
             client.clone(),
             service,
             &track,
