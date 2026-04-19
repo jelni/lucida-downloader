@@ -1,6 +1,4 @@
 use std::borrow::Cow;
-use std::fs::{self, File};
-use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use futures::future;
 use reqwest::Client;
-use tokio::time;
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::{fs, time};
 
 use crate::models::{
     AlbumInfo, AlbumYear, DownloadConfig, PageData, Service, SkipConfig, Track, TrackDownload,
@@ -83,7 +83,7 @@ pub async fn download_album(
         album_path
     };
 
-    fs::create_dir_all(&album_path).unwrap();
+    fs::create_dir_all(&album_path).await.unwrap();
 
     let tracks_len = album.tracks.len();
     let tracks = Arc::new(Mutex::new(album.tracks));
@@ -206,19 +206,20 @@ pub async fn request_and_download_track(
     let file_stem =
         text_utils::format_track_stem(track, track_number, track_count, is_grouped_single);
 
-    if !force_download
-        && fs::read_dir(album_path.as_path()).unwrap().any(|entry| {
-            let entry = entry.unwrap();
+    if !force_download {
+        let mut directory = fs::read_dir(album_path.as_path()).await.unwrap();
 
-            entry.file_type().unwrap().is_file()
+        while let Some(entry) = directory.next_entry().await.unwrap() {
+            if entry.file_type().await.unwrap().is_file()
                 && entry
                     .path()
                     .file_stem()
                     .is_some_and(|stem| stem.to_str().unwrap() == file_stem)
-        })
-    {
-        eprintln!("{workers} track {} is already downloaded", track.title);
-        return;
+            {
+                eprintln!("{workers} track {} is already downloaded", track.title);
+                return;
+            }
+        }
     }
 
     eprintln!("{workers} downloading track {}", track.title);
@@ -362,16 +363,19 @@ async fn download_track(
 
         let file_name = format!("{file_stem}.{file_extension}");
         let part_path = album_path.join(format!("{file_name}.part"));
-        let mut file = BufWriter::new(File::create(&part_path).unwrap());
+        let mut file = BufWriter::new(File::create(&part_path).await.unwrap());
 
         while let Some(result) = rx.recv().await {
             match result {
-                Ok(chunk) => file.write_all(&chunk).unwrap(),
+                Ok(chunk) => file.write_all(&chunk).await.unwrap(),
                 Err(()) => continue 'download_track,
             }
         }
 
-        fs::rename(part_path, album_path.join(file_name)).unwrap();
+        fs::rename(part_path, album_path.join(file_name))
+            .await
+            .unwrap();
+
         break;
     }
 }
@@ -417,11 +421,11 @@ pub async fn download_album_cover(
             return;
         };
 
-        let mut file = BufWriter::new(File::create(&part_path).unwrap());
+        let mut file = BufWriter::new(File::create(&part_path).await.unwrap());
 
         while let Some(chunk) = rx.recv().await {
             if let Ok(chunk) = chunk {
-                file.write_all(&chunk).unwrap()
+                file.write_all(&chunk).await.unwrap();
             } else {
                 if !running.load(Ordering::Relaxed) {
                     return;
@@ -431,9 +435,9 @@ pub async fn download_album_cover(
             }
         }
 
-        file.flush().unwrap();
+        file.flush().await.unwrap();
         break;
     }
 
-    fs::rename(part_path, cover_path).unwrap();
+    fs::rename(part_path, cover_path).await.unwrap();
 }

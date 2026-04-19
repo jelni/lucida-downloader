@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,6 +8,8 @@ use futures::future;
 use models::{BASE_URL, Cli, DownloadConfig, SkipConfig};
 use reqwest::ClientBuilder;
 use reqwest::header::{COOKIE, HeaderMap};
+use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
 
 use crate::models::Availability;
@@ -41,11 +41,11 @@ async fn main() -> ExitCode {
     let mut urls = cli.urls;
 
     for file in cli.file {
-        urls.extend(
-            BufReader::new(File::open(file).unwrap())
-                .lines()
-                .map(|line| line.unwrap()),
-        );
+        let mut lines = BufReader::new(File::open(file).await.unwrap()).lines();
+
+        while let Some(line) = lines.next_line().await.unwrap() {
+            urls.push(line);
+        }
     }
 
     urls.reverse();
