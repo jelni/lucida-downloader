@@ -84,7 +84,7 @@ pub async fn request_track_download(
                 private: config.private,
                 token: Token {
                     expiry: token_expiry,
-                    primary: &track.csrf,
+                    primary: track.csrf.as_deref(),
                     secondary: track.csrf_fallback.as_deref(),
                 },
                 upload: Upload { enabled: false },

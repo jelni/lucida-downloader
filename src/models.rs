@@ -84,6 +84,10 @@ pub enum AlbumYear {
     Prepend,
 }
 
+pub enum ResolveAlbumError {
+    ArtistUrl { name: String },
+}
+
 pub enum Availability {
     Available,
     Captcha,
@@ -105,7 +109,7 @@ pub struct SkipConfig {
 
 pub struct AlbumInfo {
     pub title: String,
-    pub release_year: u16,
+    pub release_year: Option<u16>,
     pub cover_artwork_url: String,
     pub artist_name: String,
     pub tracks: Vec<(Option<u32>, Track)>,
@@ -113,7 +117,7 @@ pub struct AlbumInfo {
 }
 
 impl AlbumInfo {
-    pub fn new(info: Info, token: String) -> Self {
+    pub fn new(info: Info, token: Option<String>) -> Result<Self, ResolveAlbumError> {
         match info {
             Info::Album {
                 title,
@@ -122,13 +126,15 @@ impl AlbumInfo {
                 track_count,
                 release_date,
                 tracks,
-            } => Self {
+            } => Ok(Self {
                 title,
-                release_year: release_date.year().try_into().unwrap(),
+                release_year: Some(release_date.year().try_into().unwrap()),
                 cover_artwork_url: cover_artwork.pop().unwrap().url,
-                artist_name: artists
-                    .pop()
-                    .map_or_else(|| "Unknown".into(), |artist| artist.name),
+                artist_name: if artists.is_empty() {
+                    "Unknown".into()
+                } else {
+                    artists.swap_remove(0).name
+                },
                 tracks: tracks
                     .into_iter()
                     .enumerate()
@@ -136,7 +142,25 @@ impl AlbumInfo {
                     .rev()
                     .collect(),
                 track_count,
-            },
+            }),
+            Info::Playlist {
+                title,
+                mut cover_artwork,
+                track_count,
+                tracks,
+            } => Ok(Self {
+                title,
+                release_year: None,
+                cover_artwork_url: cover_artwork.pop().unwrap().url,
+                artist_name: "Playlists".into(),
+                tracks: tracks
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, track)| (Some(u32::try_from(i).unwrap() + 1), track))
+                    .rev()
+                    .collect(),
+                track_count,
+            }),
             Info::Track {
                 url,
                 title,
@@ -145,16 +169,18 @@ impl AlbumInfo {
                 mut album,
                 release_date,
                 producers,
-            } => Self {
+            } => Ok(Self {
                 title: album
                     .as_ref()
                     .map_or_else(|| title.clone(), |album| album.title.clone()),
-                release_year: album
-                    .as_ref()
-                    .map_or_else(|| release_date.unwrap(), |album| album.release_date)
-                    .year()
-                    .try_into()
-                    .unwrap(),
+                release_year: Some(
+                    album
+                        .as_ref()
+                        .map_or_else(|| release_date.unwrap(), |album| album.release_date)
+                        .year()
+                        .try_into()
+                        .unwrap(),
+                ),
                 cover_artwork_url: album
                     .as_mut()
                     .map_or_else(
@@ -179,7 +205,8 @@ impl AlbumInfo {
                     },
                 )],
                 track_count: album.and_then(|album| album.track_count).unwrap_or(1),
-            },
+            }),
+            Info::Artist { name } => Err(ResolveAlbumError::ArtistUrl { name }),
         }
     }
 }
@@ -201,7 +228,7 @@ impl fmt::Display for WorkerIds {
 pub struct PageData {
     pub info: Info,
     pub original_service: Service,
-    pub token: String,
+    pub token: Option<String>,
     pub token_expiry: u64,
 }
 
@@ -220,6 +247,13 @@ pub enum Info {
         tracks: Vec<Track>,
     },
     #[serde(rename_all = "camelCase")]
+    Playlist {
+        title: String,
+        cover_artwork: Vec<CoverArtwork>,
+        track_count: u32,
+        tracks: Vec<Track>,
+    },
+    #[serde(rename_all = "camelCase")]
     Track {
         url: String,
         title: String,
@@ -230,6 +264,8 @@ pub enum Info {
         release_date: Option<OffsetDateTime>,
         producers: Option<Vec<String>>,
     },
+    #[serde(rename_all = "camelCase")]
+    Artist { name: String },
 }
 
 #[derive(Deserialize)]
@@ -249,7 +285,7 @@ pub struct Track {
     pub url: String,
     pub artists: Vec<Artist>,
     pub producers: Option<Vec<String>>,
-    pub csrf: String,
+    pub csrf: Option<String>,
     pub csrf_fallback: Option<String>,
 }
 
@@ -296,7 +332,7 @@ pub struct Account<'a> {
 #[derive(Serialize)]
 pub struct Token<'a> {
     pub expiry: u64,
-    pub primary: &'a str,
+    pub primary: Option<&'a str>,
     pub secondary: Option<&'a str>,
 }
 

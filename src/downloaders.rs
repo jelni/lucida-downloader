@@ -11,8 +11,8 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::{fs, time};
 
 use crate::models::{
-    AlbumInfo, AlbumYear, DownloadConfig, PageData, Service, SkipConfig, Track, TrackDownload,
-    WorkerIds,
+    AlbumInfo, AlbumYear, DownloadConfig, PageData, ResolveAlbumError, Service, SkipConfig, Track,
+    TrackDownload, WorkerIds,
 };
 use crate::{requests, text_utils, workers};
 
@@ -38,7 +38,20 @@ pub async fn download_album(
         return;
     };
 
-    let album = AlbumInfo::new(page_data.info, page_data.token);
+    let album = match AlbumInfo::new(page_data.info, page_data.token) {
+        Ok(album) => album,
+        Err(err) => {
+            match err {
+                ResolveAlbumError::ArtistUrl { name } => {
+                    eprintln!(
+                        "[WORKER {album_worker}] cannot download URL pointing to an artist ({name})",
+                    );
+                }
+            }
+
+            return;
+        }
+    };
 
     eprintln!(
         "[WORKER {album_worker}] downloading album {} - {} with {} tracks",
@@ -60,14 +73,14 @@ pub async fn download_album(
         } else {
             let sanitized_album_title = text_utils::sanitize_file_name(&album.title);
 
-            match album_year {
-                Some(AlbumYear::Append) => {
-                    format!("{} ({})", sanitized_album_title, album.release_year)
+            match (album.release_year, album_year) {
+                (Some(release_year), Some(AlbumYear::Append)) => {
+                    format!("{sanitized_album_title} ({release_year})")
                 }
-                Some(AlbumYear::Prepend) => {
-                    format!("({}) {}", album.release_year, sanitized_album_title)
+                (Some(release_year), Some(AlbumYear::Prepend)) => {
+                    format!("({release_year}) {sanitized_album_title}")
                 }
-                None => sanitized_album_title,
+                _ => sanitized_album_title,
             }
         };
 
