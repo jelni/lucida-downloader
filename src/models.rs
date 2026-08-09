@@ -270,7 +270,7 @@ pub enum Service {
     Qobuz,
     Tidal,
     Soundcloud,
-    AmazonMusic,
+    Amazon,
 }
 
 #[expect(clippy::struct_excessive_bools)]
