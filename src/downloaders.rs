@@ -409,7 +409,7 @@ pub async fn download_album_cover(
             let end_index = stripped_url.rfind('_').unwrap() + 1;
             Cow::Owned(format!("{}org.jpg", &url[..end_index]))
         }
-        Service::Tidal | Service::Soundcloud => Cow::Borrowed(url),
+        Service::Tidal | Service::Soundcloud | Service::Amazon => Cow::Borrowed(url),
     };
 
     let part_path = album_path.join("cover.jpg.part");
