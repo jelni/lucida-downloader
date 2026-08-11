@@ -78,7 +78,7 @@ pub async fn request_track_download(
                     r#type: "country",
                 },
                 compat: false,
-                downscale: "original",
+                downscale: &config.convert,
                 handoff: true,
                 metadata: config.metadata,
                 private: config.private,
