@@ -90,7 +90,7 @@ pub struct Cli {
     #[arg(long)]
     pub user_agent: Option<String>,
 
-    #[arg(long, default_value = "original", long_help = CONVERT_HELP)]
+    #[arg(long, default_value = "original", help = "format/bitrate to convert downloaded tracks to", long_help = CONVERT_HELP)]
     pub convert: String,
 }
 
