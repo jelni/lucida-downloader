@@ -76,6 +76,11 @@ pub struct Cli {
     /// the User-Agent header to use
     #[arg(long)]
     pub user_agent: Option<String>,
+
+    /// format/bitrate to convert downloaded tracks to, e.g. "original",
+    /// "mp3-320", "flac", "bitcrush" (see lucida's website for valid values)
+    #[arg(long, default_value = "original")]
+    pub convert: String,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -95,6 +100,7 @@ pub struct DownloadConfig {
     pub country: String,
     pub metadata: bool,
     pub private: bool,
+    pub convert: String,
 }
 
 #[derive(Clone, Copy)]
