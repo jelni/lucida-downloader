@@ -355,9 +355,15 @@ async fn download_track(
             .split_once(';')
             .map_or(mime_type.as_str(), |(mime_type, _)| mime_type)
         {
+            // observed via DevTools in Google Chrome.
+            //audio/mp3 --> .mp3 (mp3/bitcrush)
+            //audio/m4a --> .m4a (m4a aac)
             "audio/flac" => "flac",
-            "audio/mpeg" => "mp3",
-            "audio/mp4" => "m4a",
+            "audio/mpeg" | "audio/bitcrush" | "audio/mp3" => "mp3",
+            "audio/mp4" | "audio/m4a" => "m4a",
+            "audio/ogg" => "ogg",
+            "audio/opus" => "opus",
+            "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
             _ => panic!("unsupported mime type {mime_type}"),
         };
 
