@@ -7,6 +7,19 @@ use time::OffsetDateTime;
 
 pub const BASE_URL: &str = "https://lucida.to/";
 
+const CONVERT_HELP: &str = "\
+format/bitrate to convert downloaded tracks to
+
+                |64      |96      |128            |192            |256            |320           |
+mp3             |-       |-       |mp3-128        |mp3-192        |mp3-256        |mp3-320       |
+ogg-vorbis      |-       |-       |ogg-vorbis-128 |ogg-vorbis-192 |ogg-vorbis-256 |ogg-vorbis-320|
+opus            |opus-64 |opus-96 |opus-128       |opus-192       |opus-256       |opus-320      |
+m4a-aac         |-       |-       |m4a-aac-128    |m4a-aac-192    |m4a-aac-256    |m4a-aac-320   |
+flac-16         lossless, no bitrate needed
+wav             lossless, no bitrate needed
+original        source format (default)
+bitcrush        heavily degraded, smallest file size";
+
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Parser)]
 #[command(arg_required_else_help = true)]
@@ -77,9 +90,7 @@ pub struct Cli {
     #[arg(long)]
     pub user_agent: Option<String>,
 
-    /// format/bitrate to convert downloaded tracks to, e.g. "original",
-    /// "mp3-320", "flac", "bitcrush" (see lucida's website for valid values)
-    #[arg(long, default_value = "original")]
+    #[arg(long, default_value = "original", long_help = CONVERT_HELP)]
     pub convert: String,
 }
 
