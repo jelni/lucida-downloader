@@ -125,6 +125,7 @@ async fn main() -> ExitCode {
                 country: cli.country.clone(),
                 metadata: !cli.no_metadata,
                 private: cli.private,
+                convert: cli.convert.clone(),
             },
             cli.track_workers,
             SkipConfig {
