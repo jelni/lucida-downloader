@@ -284,7 +284,7 @@ pub enum Service {
 pub struct TrackDownloadRequest<'a> {
     pub account: Account<'a>,
     pub compat: bool,
-    pub downscale: &'static str,
+    pub downscale: &'a str,
     pub handoff: bool,
     pub metadata: bool,
     pub private: bool,
