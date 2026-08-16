@@ -73,6 +73,10 @@ pub struct Cli {
     #[arg(long, default_value_t = 4)]
     pub track_workers: usize,
 
+    /// maximum retry attempts for a track before skipping it
+    #[arg(long, default_value_t = 5)]
+    pub max_retries: u32,
+
     /// skip downloading tracks in the album
     #[arg(long)]
     pub skip_tracks: bool,
@@ -112,6 +116,7 @@ pub struct DownloadConfig {
     pub metadata: bool,
     pub private: bool,
     pub convert: String,
+    pub max_retries: u32,
 }
 
 #[derive(Clone, Copy)]

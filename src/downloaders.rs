@@ -33,6 +33,7 @@ pub async fn download_album(
     skip: SkipConfig,
     running: Arc<AtomicBool>,
     album_worker: usize,
+    skipped: Arc<Mutex<Vec<String>>>,
 ) {
     let Some(page_data) = resolve_album(&client, url, &config, &running, album_worker).await else {
         return;
@@ -110,6 +111,7 @@ pub async fn download_album(
                     track: track_worker,
                     album: album_worker,
                 },
+                skipped.clone(),
             ))
         }))
         .await
@@ -195,11 +197,13 @@ pub async fn request_and_download_track(
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
+    skipped: Arc<Mutex<Vec<String>>>,
 ) {
     // HACK(jel): this seems to be the only way to detect tracks that are impossible
     // to download yet
     if matches!(service, Service::Qobuz if track.producers.is_none()) {
         eprintln!("{workers} skipping unavailable track {}", track.title);
+        skipped.lock().unwrap().push(format!("{} (unavailable on Qobuz)", track.title));
         return;
     }
 
@@ -233,6 +237,7 @@ pub async fn request_and_download_track(
         album_path,
         running,
         workers,
+        skipped,
     )
     .await;
 }
@@ -250,10 +255,23 @@ async fn request_track_download(
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
+    skipped: Arc<Mutex<Vec<String>>>,
 ) {
     let mut downscale = config.convert.as_str();
+    let mut attempts = 0u32;
 
     'request_track_download: loop {
+        attempts += 1;
+
+        if attempts > config.max_retries {
+            eprintln!(
+                "{workers} giving up on {} after {} attempts, skipping",
+                track.title, config.max_retries
+            );
+            skipped.lock().unwrap().push(track.title.clone());
+            return;
+        }
+        
         let Some(track_download) = requests::request_track_download(
             &client,
             track,

@@ -24,6 +24,7 @@ pub async fn run_album_worker(
     skip: SkipConfig,
     running: Arc<AtomicBool>,
     album_worker: usize,
+    skipped: Arc<Mutex<Vec<String>>>,
 ) {
     while running.load(Ordering::Relaxed) {
         let Some(url) = urls.lock().unwrap().pop() else {
@@ -44,6 +45,7 @@ pub async fn run_album_worker(
             skip,
             running.clone(),
             album_worker,
+            skipped.clone(),
         )
         .await;
     }
@@ -68,6 +70,7 @@ pub async fn run_track_worker(
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
+    skipped: Arc<Mutex<Vec<String>>>,
 ) {
     while running.load(Ordering::Relaxed) {
         let Some((track_number, track)) = tracks.lock().unwrap().pop() else {
@@ -87,6 +90,7 @@ pub async fn run_track_worker(
             album_path.clone(),
             running.clone(),
             workers,
+            skipped.clone(),
         )
         .await;
     }

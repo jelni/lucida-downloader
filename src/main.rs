@@ -97,6 +97,7 @@ async fn main() -> ExitCode {
 
     let urls = Arc::new(Mutex::new(urls));
     let running = Arc::new(AtomicBool::new(true));
+    let skipped = Arc::new(Mutex::new(Vec::<String>::new()));
     let running_clone = running.clone();
     let worker_count = cli.album_workers.min(urls_len);
 
@@ -126,6 +127,7 @@ async fn main() -> ExitCode {
                 metadata: !cli.no_metadata,
                 private: cli.private,
                 convert: cli.convert.clone(),
+                max_retries: cli.max_retries,
             },
             cli.track_workers,
             SkipConfig {
@@ -134,6 +136,7 @@ async fn main() -> ExitCode {
             },
             running.clone(),
             album_worker,
+            skipped.clone(),
         ))
     }))
     .await
@@ -141,6 +144,17 @@ async fn main() -> ExitCode {
         result.unwrap();
     }
 
-    eprintln!("finished!");
+    let skipped = skipped.lock().unwrap();
+
+    if skipped.is_empty() {
+        eprintln!("finished!");
+    } else {
+        eprintln!("finished with {} skipped track(s):", skipped.len());
+
+        for track in skipped.iter() {
+            eprintln!("  {track}");
+        }
+    }
+
     ExitCode::SUCCESS
 }
