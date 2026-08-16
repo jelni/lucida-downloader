@@ -281,8 +281,8 @@ async fn request_track_download(
                 continue 'request_track_download;
             };
 
-            eprintln!("{workers} DEBUG status={:?} message={:?}", track_download.status, track_download.message);
-            if track_download.message.contains("Invalid downscaling option.") && downscale != "original" {
+            //eprintln!("{workers} DEBUG status={:?} message={:?}", track_download.status, track_download.message);
+            if track_download.message.contains("Invalid downscaling option.") && downscale != "original" && track_download.status == "error" {
                 eprintln!(
                     "{workers} \"{downscale}\" isn't supported for this track, falling back to original format"
                 );
