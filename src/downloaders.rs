@@ -46,6 +46,9 @@ pub async fn download_album(
         album.artist_name, album.title, album.track_count
     );
 
+    let artist_name: Arc<str> = album.artist_name.as_str().into();
+    let album_title: Arc<str> = album.title.as_str().into();
+
     let is_grouped_single = group_singles
         && album.track_count == 1
         && album
@@ -106,6 +109,8 @@ pub async fn download_album(
                 force_download,
                 config.clone(),
                 album_path.clone(),
+                artist_name.clone(),
+                album_title.clone(),
                 running.clone(),
                 WorkerIds {
                     track: track_worker,
@@ -195,6 +200,8 @@ pub async fn request_and_download_track(
     force_download: bool,
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
+    artist_name: Arc<str>, 
+    album_title: Arc<str>,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
     skipped: Arc<Mutex<Vec<String>>>,
@@ -235,6 +242,8 @@ pub async fn request_and_download_track(
         token_expiry,
         config,
         album_path,
+        artist_name,
+        album_title,
         running,
         workers,
         skipped,
@@ -253,6 +262,8 @@ async fn request_track_download(
     token_expiry: u64,
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
+    artist_name: Arc<str>,   
+    album_title: Arc<str>,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
     skipped: Arc<Mutex<Vec<String>>>,
@@ -268,10 +279,13 @@ async fn request_track_download(
                 "{workers} giving up on {} after {} attempts, skipping",
                 track.title, config.max_retries
             );
-            skipped.lock().unwrap().push(track.title.clone());
+            skipped.lock().unwrap().push(format!(
+                "{artist_name} - {album_title} - {}",
+                track.title
+            ));
             return;
         }
-        
+
         let Some(track_download) = requests::request_track_download(
             &client,
             track,
