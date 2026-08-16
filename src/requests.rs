@@ -66,6 +66,7 @@ pub async fn request_track_download(
     track: &Track,
     token_expiry: u64,
     config: &DownloadConfig,
+    downscale: &str,
     running: Arc<AtomicBool>,
     workers: WorkerIds,
 ) -> Option<TrackDownload> {
@@ -78,7 +79,7 @@ pub async fn request_track_download(
                     r#type: "country",
                 },
                 compat: false,
-                downscale: &config.convert,
+                downscale,
                 handoff: true,
                 metadata: config.metadata,
                 private: config.private,

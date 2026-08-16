@@ -251,12 +251,15 @@ async fn request_track_download(
     running: Arc<AtomicBool>,
     workers: WorkerIds,
 ) {
+    let mut downscale = config.convert.as_str();
+
     'request_track_download: loop {
         let Some(track_download) = requests::request_track_download(
             &client,
             track,
             token_expiry,
             config,
+            downscale,
             running.clone(),
             workers,
         )
@@ -277,6 +280,15 @@ async fn request_track_download(
 
                 continue 'request_track_download;
             };
+
+            eprintln!("{workers} DEBUG status={:?} message={:?}", track_download.status, track_download.message);
+            if track_download.message.contains("Invalid downscaling option.") && downscale != "original" {
+                eprintln!(
+                    "{workers} \"{downscale}\" isn't supported for this track, falling back to original format"
+                );
+                downscale = "original";
+                continue 'request_track_download;
+            }
 
             if last_status.as_ref().is_none_or(|last_status| {
                 (&track_download.status, &track_download.message)
