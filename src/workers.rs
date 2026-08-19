@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::Client;
 
 use crate::downloaders;
-use crate::models::{AlbumYear, DownloadConfig, Service, SkipConfig, Track, WorkerIds};
+use crate::models::{AlbumYear, DownloadConfig, Service, SkipConfig, Track};
 
 #[expect(
     clippy::too_many_arguments,
@@ -23,11 +23,10 @@ pub async fn run_album_worker(
     track_workers: usize,
     skip: SkipConfig,
     running: Arc<AtomicBool>,
-    album_worker: usize,
 ) {
     while running.load(Ordering::Relaxed) {
         let Some(url) = urls.lock().unwrap().pop() else {
-            eprintln!("[WORKER {album_worker}] stopped: no queued albums");
+            tracing::info!("stopped: no queued albums");
             return;
         };
 
@@ -43,12 +42,11 @@ pub async fn run_album_worker(
             track_workers,
             skip,
             running.clone(),
-            album_worker,
         )
         .await;
     }
 
-    eprintln!("[WORKER {album_worker}] stopped");
+    tracing::info!("stopped");
 }
 
 #[expect(clippy::type_complexity)]
@@ -67,7 +65,6 @@ pub async fn run_track_worker(
     config: DownloadConfig,
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
-    workers: WorkerIds,
 ) {
     while running.load(Ordering::Relaxed) {
         let Some((track_number, track)) = tracks.lock().unwrap().pop() else {
@@ -86,7 +83,6 @@ pub async fn run_track_worker(
             &config,
             album_path.clone(),
             running.clone(),
-            workers,
         )
         .await;
     }

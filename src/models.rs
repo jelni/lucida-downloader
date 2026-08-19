@@ -1,4 +1,3 @@
-use std::fmt;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
@@ -208,18 +207,6 @@ impl AlbumInfo {
             }),
             Info::Artist { name } => Err(ResolveAlbumError::ArtistUrl { name }),
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct WorkerIds {
-    pub track: usize,
-    pub album: usize,
-}
-
-impl fmt::Display for WorkerIds {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[WORKER {}-{}]", self.album, self.track)
     }
 }
 

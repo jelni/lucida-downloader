@@ -9,10 +9,11 @@ use reqwest::Client;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::{fs, time};
+use tracing::Instrument;
 
 use crate::models::{
     AlbumInfo, AlbumYear, DownloadConfig, PageData, ResolveAlbumError, Service, SkipConfig, Track,
-    TrackDownload, WorkerIds,
+    TrackDownload,
 };
 use crate::{requests, text_utils, workers};
 
@@ -32,9 +33,8 @@ pub async fn download_album(
     track_workers: usize,
     skip: SkipConfig,
     running: Arc<AtomicBool>,
-    album_worker: usize,
 ) {
-    let Some(page_data) = resolve_album(&client, url, &config, &running, album_worker).await else {
+    let Some(page_data) = resolve_album(&client, url, &config, &running).await else {
         return;
     };
 
@@ -43,9 +43,7 @@ pub async fn download_album(
         Err(err) => {
             match err {
                 ResolveAlbumError::ArtistUrl { name } => {
-                    eprintln!(
-                        "[WORKER {album_worker}] cannot download URL pointing to an artist ({name})",
-                    );
+                    tracing::error!("cannot download URL pointing to an artist ({name})");
                 }
             }
 
@@ -53,9 +51,11 @@ pub async fn download_album(
         }
     };
 
-    eprintln!(
-        "[WORKER {album_worker}] downloading album {} - {} with {} tracks",
-        album.artist_name, album.title, album.track_count
+    tracing::info!(
+        "downloading album {} - {} with {} tracks",
+        album.artist_name,
+        album.title,
+        album.track_count
     );
 
     let is_grouped_single = group_singles
@@ -105,25 +105,24 @@ pub async fn download_album(
     if !skip.tracks {
         let worker_count = track_workers.min(tracks_len);
 
-        eprintln!("[WORKER {album_worker}] spawning {worker_count} track workers");
+        tracing::info!("spawning {worker_count} track workers");
 
         for result in future::join_all((1..=worker_count).map(|track_worker| {
-            tokio::spawn(workers::run_track_worker(
-                client.clone(),
-                page_data.original_service,
-                tracks.clone(),
-                album.track_count,
-                is_grouped_single,
-                page_data.token_expiry,
-                force_download,
-                config.clone(),
-                album_path.clone(),
-                running.clone(),
-                WorkerIds {
-                    track: track_worker,
-                    album: album_worker,
-                },
-            ))
+            tokio::spawn(
+                workers::run_track_worker(
+                    client.clone(),
+                    page_data.original_service,
+                    tracks.clone(),
+                    album.track_count,
+                    is_grouped_single,
+                    page_data.token_expiry,
+                    force_download,
+                    config.clone(),
+                    album_path.clone(),
+                    running.clone(),
+                )
+                .instrument(tracing::info_span!("track", track_worker)),
+            )
         }))
         .await
         {
@@ -143,7 +142,6 @@ pub async fn download_album(
         force_download,
         &album_path,
         running,
-        album_worker,
     )
     .await;
 }
@@ -153,13 +151,11 @@ async fn resolve_album(
     url: &str,
     config: &DownloadConfig,
     running: &Arc<AtomicBool>,
-    album_worker: usize,
 ) -> Option<PageData> {
-    eprintln!("[WORKER {album_worker}] resolving album {url}");
+    tracing::info!("resolving album {url}");
 
     let html = loop {
-        let html =
-            requests::resolve_album(client, url, &config.country, running, album_worker).await?;
+        let html = requests::resolve_album(client, url, &config.country, running).await?;
 
         if let Some(error) = [
             "An error occured trying to process your request.",
@@ -169,7 +165,7 @@ async fn resolve_album(
         .into_iter()
         .find(|&error| html.contains(error))
         {
-            eprintln!("[WORKER {album_worker}] HTML contains error: {error}");
+            tracing::warn!("HTML contains error: {error}");
 
             if !running.load(Ordering::Relaxed) {
                 return None;
@@ -207,12 +203,11 @@ pub async fn request_and_download_track(
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
-    workers: WorkerIds,
 ) {
     // HACK(jel): this seems to be the only way to detect tracks that are impossible
     // to download yet
     if matches!(service, Service::Qobuz if track.producers.is_none()) {
-        eprintln!("{workers} skipping unavailable track {}", track.title);
+        tracing::error!("skipping unavailable track {}", track.title);
         return;
     }
 
@@ -229,13 +224,13 @@ pub async fn request_and_download_track(
                     .file_stem()
                     .is_some_and(|stem| stem.to_str().unwrap() == file_stem)
             {
-                eprintln!("{workers} track {} is already downloaded", track.title);
+                tracing::info!("track {} is already downloaded", track.title);
                 return;
             }
         }
     }
 
-    eprintln!("{workers} downloading track {}", track.title);
+    tracing::info!("downloading track {}", track.title);
 
     request_track_download(
         client,
@@ -245,15 +240,10 @@ pub async fn request_and_download_track(
         config,
         album_path,
         running,
-        workers,
     )
     .await;
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "this function is called from a single place"
-)]
 async fn request_track_download(
     client: Client,
     track: &Track,
@@ -262,18 +252,11 @@ async fn request_track_download(
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
-    workers: WorkerIds,
 ) {
     'request_track_download: loop {
-        let Some(track_download) = requests::request_track_download(
-            &client,
-            track,
-            token_expiry,
-            config,
-            running.clone(),
-            workers,
-        )
-        .await
+        let Some(track_download) =
+            requests::request_track_download(&client, track, token_expiry, config, running.clone())
+                .await
         else {
             break;
         };
@@ -282,7 +265,7 @@ async fn request_track_download(
 
         loop {
             let Some(track_download) =
-                requests::track_download_status(&client, &track_download, workers).await
+                requests::track_download_status(&client, &track_download).await
             else {
                 if !running.load(Ordering::Relaxed) {
                     return;
@@ -295,8 +278,8 @@ async fn request_track_download(
                 (&track_download.status, &track_download.message)
                     != (&last_status.0, &last_status.1)
             }) {
-                eprintln!(
-                    "{workers} new download status: {}: {}",
+                tracing::info!(
+                    "new download status: {}: {}",
                     track_download.status,
                     track_download.message.replace("{item}", &track.title)
                 );
@@ -309,18 +292,19 @@ async fn request_track_download(
             } else if let Some(last_status) = last_status.as_ref()
                 && last_status.2.elapsed() >= Duration::from_secs(30)
             {
-                eprint!(
-                    "{workers} download status stuck for 30 seconds on {}: {}",
+                let is_running = running.load(Ordering::Relaxed);
+
+                tracing::warn!(
+                    "download status stuck for 30 seconds on {}: {}{}",
                     last_status.0,
-                    last_status.1.replace("{item}", &track.title)
+                    last_status.1.replace("{item}", &track.title),
+                    if is_running { ", retrying" } else { "" }
                 );
 
-                if !running.load(Ordering::Relaxed) {
-                    eprintln!();
+                if !is_running {
                     return;
                 }
 
-                eprintln!(", retrying");
                 continue 'request_track_download;
             }
 
@@ -331,15 +315,7 @@ async fn request_track_download(
             time::sleep(Duration::from_secs(1)).await;
         }
 
-        download_track(
-            client,
-            track_download,
-            album_path,
-            file_stem,
-            running,
-            workers,
-        )
-        .await;
+        download_track(client, track_download, album_path, file_stem, running).await;
 
         break;
     }
@@ -351,11 +327,9 @@ async fn download_track(
     album_path: Arc<PathBuf>,
     file_stem: String,
     running: Arc<AtomicBool>,
-    workers: WorkerIds,
 ) {
     'download_track: loop {
-        let Some((mut rx, mime_type)) =
-            requests::download_track(&client, &track_download, workers).await
+        let Some((mut rx, mime_type)) = requests::download_track(&client, &track_download).await
         else {
             if !running.load(Ordering::Relaxed) {
                 return;
@@ -393,10 +367,6 @@ async fn download_track(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "this function is called from a single place"
-)]
 pub async fn download_album_cover(
     client: Client,
     title: &str,
@@ -405,16 +375,15 @@ pub async fn download_album_cover(
     force_download: bool,
     album_path: &Path,
     running: Arc<AtomicBool>,
-    album_worker: usize,
 ) {
     let cover_path = album_path.join("cover.jpg");
 
     if !force_download && cover_path.exists() {
-        eprintln!("[WORKER {album_worker}] {title} album cover is already downloaded");
+        tracing::info!("{title} album cover is already downloaded");
         return;
     }
 
-    eprintln!("[WORKER {album_worker}] downloading {title} album cover");
+    tracing::info!("downloading {title} album cover");
 
     let url = match service {
         Service::Qobuz => {
@@ -428,8 +397,7 @@ pub async fn download_album_cover(
     let part_path = album_path.join("cover.jpg.part");
 
     'download_album_cover: loop {
-        let Some(mut rx) =
-            requests::download_album_cover(&client, &url, running.clone(), album_worker).await
+        let Some(mut rx) = requests::download_album_cover(&client, &url, running.clone()).await
         else {
             return;
         };

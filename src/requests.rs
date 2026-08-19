@@ -9,7 +9,7 @@ use tokio::time;
 
 use crate::models::{
     Account, Availability, DownloadConfig, Token, Track, TrackDownload, TrackDownloadRequest,
-    TrackDownloadResult, TrackDownloadStatus, Upload, WorkerIds,
+    TrackDownloadResult, TrackDownloadStatus, Upload,
 };
 
 const IRRECOVERABLE_STATUS_CODES: [StatusCode; 2] =
@@ -30,7 +30,6 @@ pub async fn resolve_album(
     url: &str,
     country: &str,
     running: &Arc<AtomicBool>,
-    album_worker: usize,
 ) -> Option<String> {
     loop {
         let response = client
@@ -48,10 +47,7 @@ pub async fn resolve_album(
             break Some(response.text().await.unwrap());
         }
 
-        eprintln!(
-            "[WORKER {album_worker}] received code {} when resolving album",
-            status.as_u16()
-        );
+        tracing::warn!("received code {} when resolving album", status.as_u16());
 
         if !running.load(Ordering::Relaxed) {
             break None;
@@ -67,7 +63,6 @@ pub async fn request_track_download(
     token_expiry: u64,
     config: &DownloadConfig,
     running: Arc<AtomicBool>,
-    workers: WorkerIds,
 ) -> Option<TrackDownload> {
     loop {
         let response = client
@@ -101,7 +96,7 @@ pub async fn request_track_download(
                 match track_download {
                     TrackDownloadResult::Ok(track_download) => break Some(track_download),
                     TrackDownloadResult::Error { error, .. } => {
-                        eprintln!("{workers} error when requesting track download: {error}");
+                        tracing::warn!("error when requesting track download: {error}");
 
                         if !running.load(Ordering::Relaxed) {
                             break None;
@@ -111,7 +106,7 @@ pub async fn request_track_download(
                     }
                 }
             } else {
-                eprintln!("{workers} invalid JSON when requesting track download");
+                tracing::warn!("invalid JSON when requesting track download");
 
                 if !running.load(Ordering::Relaxed) {
                     break None;
@@ -120,8 +115,8 @@ pub async fn request_track_download(
                 time::sleep(Duration::from_secs(5)).await;
             }
         } else {
-            eprintln!(
-                "{workers} received code {} when requesting track download",
+            tracing::warn!(
+                "received code {} when requesting track download",
                 status.as_u16()
             );
 
@@ -137,7 +132,6 @@ pub async fn request_track_download(
 pub async fn track_download_status(
     client: &Client,
     stream: &TrackDownload,
-    workers: WorkerIds,
 ) -> Option<TrackDownloadStatus> {
     loop {
         let response = client
@@ -155,8 +149,8 @@ pub async fn track_download_status(
             break Some(response.json().await.unwrap());
         }
 
-        eprintln!(
-            "{workers} received code {} when checking track processing status",
+        tracing::warn!(
+            "received code {} when checking track processing status",
             status.as_u16()
         );
 
@@ -171,7 +165,6 @@ pub async fn track_download_status(
 pub async fn download_track(
     client: &Client,
     stream: &TrackDownload,
-    workers: WorkerIds,
 ) -> Option<(UnboundedReceiver<Result<Vec<u8>, ()>>, String)> {
     loop {
         let mut response = client
@@ -203,7 +196,7 @@ pub async fn download_track(
                             None => break,
                         },
                         Err(err) => {
-                            eprintln!("{workers} error when downloading track audio: {err}");
+                            tracing::warn!("error when downloading track audio: {err}");
                             tx.send(Err(())).unwrap();
                             break;
                         }
@@ -214,8 +207,8 @@ pub async fn download_track(
             break Some((rx, mime_type));
         }
 
-        eprintln!(
-            "{workers} received code {} when downloading track audio",
+        tracing::warn!(
+            "received code {} when downloading track audio",
             status.as_u16()
         );
 
@@ -231,7 +224,6 @@ pub async fn download_album_cover(
     client: &Client,
     url: &str,
     running: Arc<AtomicBool>,
-    album_worker: usize,
 ) -> Option<UnboundedReceiver<Result<Vec<u8>, ()>>> {
     loop {
         let mut response = client.get(url).send().await.unwrap();
@@ -250,9 +242,7 @@ pub async fn download_album_cover(
                             None => break,
                         },
                         Err(err) => {
-                            eprintln!(
-                                "[WORKER {album_worker}] error when downloading album cover: {err}"
-                            );
+                            tracing::warn!("error when downloading album cover: {err}");
 
                             tx.send(Err(())).unwrap();
                             break;
@@ -263,12 +253,12 @@ pub async fn download_album_cover(
 
             break Some(rx);
         } else if status == StatusCode::NOT_FOUND {
-            eprintln!("[WORKER {album_worker}] album doesn't have a cover");
+            tracing::info!("album doesn't have a cover");
             break None;
         }
 
-        eprintln!(
-            "[WORKER {album_worker}] received code {} when downloading album cover from {url}",
+        tracing::warn!(
+            "received code {} when downloading album cover from {url}",
             status.as_u16()
         );
 

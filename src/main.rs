@@ -11,6 +11,7 @@ use reqwest::header::{COOKIE, HeaderMap};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
+use tracing::Instrument;
 
 use crate::models::Availability;
 
@@ -36,6 +37,12 @@ const CAPTCHA_PROMPT: &str = concat!(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
+    tracing_subscriber::fmt()
+        .fmt_fields(tracing_subscriber::fmt::format::debug_fn(
+            |writer, _, value| write!(writer, "{value:?}"),
+        ))
+        .init();
+
     let cli = Cli::parse();
 
     let mut urls = cli.urls;
@@ -51,7 +58,7 @@ async fn main() -> ExitCode {
     urls.reverse();
 
     if urls.is_empty() {
-        eprintln!("no URLs to download");
+        tracing::error!("no URLs to download");
         return ExitCode::FAILURE;
     }
 
@@ -78,34 +85,36 @@ async fn main() -> ExitCode {
         Availability::Available => (),
         Availability::Captcha => {
             if cli.cf_clearance.is_some() && cli.user_agent.is_some() {
-                eprintln!(
+                tracing::error!(
                     "Your cf_clearance cookie and User-Agent header weren't accepted. They might be stale"
                 );
             } else {
-                eprintln!("{CAPTCHA_PROMPT}");
+                tracing::error!("{CAPTCHA_PROMPT}");
             }
 
             return ExitCode::FAILURE;
         }
         Availability::Unavailable => {
-            eprintln!("lucida seems to be unavailable right now. Visit the website: {BASE_URL}");
+            tracing::error!(
+                "lucida seems to be unavailable right now. Visit the website: {BASE_URL}"
+            );
             return ExitCode::FAILURE;
         }
     }
 
-    eprintln!("downloading {urls_len} albums");
+    tracing::info!("downloading {urls_len} albums");
 
     let urls = Arc::new(Mutex::new(urls));
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
     let worker_count = cli.album_workers.min(urls_len);
 
-    eprintln!("spawning {worker_count} album workers");
+    tracing::info!("spawning {worker_count} album workers");
 
     tokio::spawn(async move {
         signal::ctrl_c().await.unwrap();
         running_clone.store(false, Ordering::Relaxed);
-        eprintln!("Stopping gracefully");
+        tracing::warn!("Stopping gracefully");
         signal::ctrl_c().await.unwrap();
         process::exit(1);
     });
@@ -113,33 +122,35 @@ async fn main() -> ExitCode {
     let output = cli.output.unwrap_or_else(|| env::current_dir().unwrap());
 
     for result in future::join_all((1..=worker_count).map(|album_worker| {
-        tokio::spawn(workers::run_album_worker(
-            client.clone(),
-            urls.clone(),
-            output.clone(),
-            cli.force,
-            cli.group_singles,
-            cli.album_year,
-            cli.flatten_directories,
-            DownloadConfig {
-                country: cli.country.clone(),
-                metadata: !cli.no_metadata,
-                private: cli.private,
-            },
-            cli.track_workers,
-            SkipConfig {
-                tracks: cli.skip_tracks,
-                cover: cli.skip_cover,
-            },
-            running.clone(),
-            album_worker,
-        ))
+        tokio::spawn(
+            workers::run_album_worker(
+                client.clone(),
+                urls.clone(),
+                output.clone(),
+                cli.force,
+                cli.group_singles,
+                cli.album_year,
+                cli.flatten_directories,
+                DownloadConfig {
+                    country: cli.country.clone(),
+                    metadata: !cli.no_metadata,
+                    private: cli.private,
+                },
+                cli.track_workers,
+                SkipConfig {
+                    tracks: cli.skip_tracks,
+                    cover: cli.skip_cover,
+                },
+                running.clone(),
+            )
+            .instrument(tracing::info_span!("album", album_worker)),
+        )
     }))
     .await
     {
         result.unwrap();
     }
 
-    eprintln!("finished!");
+    tracing::info!("finished!");
     ExitCode::SUCCESS
 }
