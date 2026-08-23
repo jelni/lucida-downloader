@@ -6,7 +6,7 @@
 
 let
   cargo-toml = lib.importTOML ./Cargo.toml;
-  name = cargo-toml.package.name;
+  name = "${cargo-toml.package.name}-${version}";
   pname = (builtins.elemAt cargo-toml.bin 0).name;
   version = cargo-toml.package.version;
   src = ./.;
