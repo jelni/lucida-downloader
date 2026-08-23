@@ -21,6 +21,7 @@
         };
       in
       {
+        packages.default = pkgs.callPackage ./default.nix { };
         devShell = pkgs.mkShell {
           buildInputs = [
             (pkgs.fenix.complete.withComponents [
