@@ -21,7 +21,6 @@
         };
       in
       {
-        packages.default = pkgs.callPackage ./default.nix { };
         devShell = pkgs.mkShell {
           buildInputs = [
             (pkgs.fenix.complete.withComponents [
@@ -37,6 +36,18 @@
 
           RUST_SRC_PATH = "${pkgs.fenix.complete.rust-src}/lib/rustlib/src/rust/library";
         };
+
+        packages.default =
+          let
+            manifest = pkgs.lib.importTOML ./Cargo.toml;
+          in
+          pkgs.rustPlatform.buildRustPackage {
+            pname = manifest.package.name;
+            inherit (manifest.package) version;
+            src = pkgs.lib.cleanSource ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            meta.mainProgram = "lucida";
+          };
       }
     );
 }
