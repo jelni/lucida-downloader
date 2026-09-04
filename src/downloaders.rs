@@ -17,6 +17,8 @@ use crate::models::{
 };
 use crate::{requests, text_utils, workers};
 
+struct DownloadError;
+
 #[expect(
     clippy::too_many_arguments,
     reason = "this function is called from a single place"
@@ -235,7 +237,7 @@ pub async fn request_and_download_track(
     request_track_download(
         client,
         track,
-        file_stem,
+        &file_stem,
         token_expiry,
         config,
         album_path,
@@ -247,7 +249,7 @@ pub async fn request_and_download_track(
 async fn request_track_download(
     client: Client,
     track: &Track,
-    file_stem: String,
+    file_stem: &str,
     token_expiry: u64,
     config: &DownloadConfig,
     album_path: Arc<PathBuf>,
@@ -315,7 +317,17 @@ async fn request_track_download(
             time::sleep(Duration::from_secs(1)).await;
         }
 
-        download_track(client, track_download, album_path, file_stem, running).await;
+        let Ok(()) = download_track(
+            client.clone(),
+            track_download,
+            album_path.clone(),
+            file_stem,
+            running.clone(),
+        )
+        .await
+        else {
+            continue 'request_track_download;
+        };
 
         break;
     }
@@ -325,17 +337,17 @@ async fn download_track(
     client: Client,
     track_download: TrackDownload,
     album_path: Arc<PathBuf>,
-    file_stem: String,
+    file_stem: &str,
     running: Arc<AtomicBool>,
-) {
+) -> Result<(), DownloadError> {
     'download_track: loop {
         let Some((mut rx, mime_type)) = requests::download_track(&client, &track_download).await
         else {
             if !running.load(Ordering::Relaxed) {
-                return;
+                break Ok(());
             }
 
-            continue;
+            break Err(DownloadError);
         };
 
         let file_extension = match mime_type
@@ -363,7 +375,7 @@ async fn download_track(
             .await
             .unwrap();
 
-        break;
+        break Ok(());
     }
 }
 

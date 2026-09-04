@@ -6,6 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, StatusCode, Url};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tokio::time;
+use tracing::Instrument;
 
 use crate::models::{
     Account, Availability, DownloadConfig, Token, Track, TrackDownload, TrackDownloadRequest,
@@ -186,23 +187,26 @@ pub async fn download_track(
 
             let (tx, rx) = mpsc::unbounded_channel();
 
-            tokio::spawn(async move {
-                loop {
-                    let result = response.chunk().await;
+            tokio::spawn(
+                async move {
+                    loop {
+                        let result = response.chunk().await;
 
-                    match result {
-                        Ok(chunk) => match chunk {
-                            Some(chunk) => tx.send(Ok(chunk.to_vec())).unwrap(),
-                            None => break,
-                        },
-                        Err(err) => {
-                            tracing::warn!("error when downloading track audio: {err}");
-                            tx.send(Err(())).unwrap();
-                            break;
+                        match result {
+                            Ok(chunk) => match chunk {
+                                Some(chunk) => tx.send(Ok(chunk.to_vec())).unwrap(),
+                                None => break,
+                            },
+                            Err(err) => {
+                                tracing::warn!("error when downloading track audio: {err}");
+                                tx.send(Err(())).unwrap();
+                                break;
+                            }
                         }
                     }
                 }
-            });
+                .in_current_span(),
+            );
 
             break Some((rx, mime_type));
         }
