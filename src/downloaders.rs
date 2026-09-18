@@ -206,8 +206,8 @@ pub async fn request_and_download_track(
     album_path: Arc<PathBuf>,
     running: Arc<AtomicBool>,
 ) {
-    // HACK(jel): this seems to be the only way to detect tracks that are impossible
-    // to download yet
+    // HACK(jel): this seems to be the only way to detect tracks that are
+    // impossible to download yet
     if matches!(service, Service::Qobuz if track.producers.is_none()) {
         tracing::error!("skipping unavailable track {}", track.title);
         return;

@@ -15,6 +15,7 @@ use tracing::Instrument;
 
 use crate::models::Availability;
 
+mod browser;
 mod downloaders;
 mod models;
 mod requests;
@@ -36,6 +37,7 @@ const CAPTCHA_PROMPT: &str = concat!(
 );
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(clippy::too_many_lines)]
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .fmt_fields(tracing_subscriber::fmt::format::debug_fn(
@@ -81,18 +83,48 @@ async fn main() -> ExitCode {
         client.build().unwrap()
     };
 
-    match requests::check_availability(&client).await {
-        Availability::Available => (),
+    let client = match requests::check_availability(&client).await {
+        Availability::Available => client,
         Availability::Captcha => {
             if cli.cf_clearance.is_some() && cli.user_agent.is_some() {
                 tracing::error!(
                     "Your cf_clearance cookie and User-Agent header weren't accepted. They might be stale"
                 );
-            } else {
-                tracing::error!("{CAPTCHA_PROMPT}");
+                return ExitCode::FAILURE;
             }
 
-            return ExitCode::FAILURE;
+            if !cli.auto_cf {
+                tracing::error!("{CAPTCHA_PROMPT}");
+                return ExitCode::FAILURE;
+            }
+
+            tracing::info!("captcha detected, launching browser to solve...");
+
+            let Some((cf_clearance, user_agent)) = browser::get_cf_clearance().await else {
+                tracing::error!("failed to automatically obtain cf_clearance");
+                return ExitCode::FAILURE;
+            };
+
+            tracing::info!("obtained cf_clearance cookie and user agent from browser");
+
+            let client = ClientBuilder::new()
+                .user_agent(&user_agent)
+                .default_headers(HeaderMap::from_iter([(
+                    COOKIE,
+                    format!("cf_clearance={cf_clearance}").try_into().unwrap(),
+                )]))
+                .build()
+                .unwrap();
+
+            if !matches!(
+                requests::check_availability(&client).await,
+                Availability::Available
+            ) {
+                tracing::error!("cf_clearance obtained from browser was not accepted");
+                return ExitCode::FAILURE;
+            }
+
+            client
         }
         Availability::Unavailable => {
             tracing::error!(
@@ -100,7 +132,7 @@ async fn main() -> ExitCode {
             );
             return ExitCode::FAILURE;
         }
-    }
+    };
 
     tracing::info!("downloading {urls_len} albums");
 

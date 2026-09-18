@@ -75,6 +75,10 @@ pub struct Cli {
     /// the User-Agent header to use
     #[arg(long)]
     pub user_agent: Option<String>,
+
+    /// launch chrome browser to solve the Cloudflare captcha
+    #[arg(long)]
+    pub auto_cf: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
