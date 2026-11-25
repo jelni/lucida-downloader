@@ -6,8 +6,8 @@ use std::{env, process};
 use clap::Parser;
 use futures::future;
 use models::{BASE_URL, Cli, DownloadConfig, SkipConfig};
-use reqwest::ClientBuilder;
 use reqwest::header::{COOKIE, HeaderMap};
+use reqwest::{Client, ClientBuilder};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
@@ -20,6 +20,8 @@ mod models;
 mod requests;
 mod text_utils;
 mod workers;
+
+const CF_CLEARANCE_PREFIX: &str = "cf_clearance=";
 
 const CAPTCHA_PROMPT: &str = concat!(
     "lucida requires you to complete a captcha!\n\n",
@@ -35,6 +37,30 @@ const CAPTCHA_PROMPT: &str = concat!(
     "  - set --user-agent argument to the value of the User-Agent header; make sure to quote it!"
 );
 
+fn http_client(user_agent: Option<&str>, cf_clearance: Option<&str>) -> Client {
+    let mut client = ClientBuilder::new();
+
+    if let Some(user_agent) = user_agent {
+        client = client.user_agent(user_agent);
+    }
+
+    if let Some(cf_clearance) = cf_clearance {
+        client = client.default_headers(HeaderMap::from_iter([(
+            COOKIE,
+            format!(
+                "{CF_CLEARANCE_PREFIX}{}",
+                cf_clearance
+                    .strip_prefix(CF_CLEARANCE_PREFIX)
+                    .unwrap_or(cf_clearance)
+            )
+            .try_into()
+            .unwrap(),
+        )]));
+    }
+
+    client.build().unwrap()
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
@@ -44,7 +70,6 @@ async fn main() -> ExitCode {
         .init();
 
     let cli = Cli::parse();
-
     let mut urls = cli.urls;
 
     for file in cli.file {
@@ -63,23 +88,7 @@ async fn main() -> ExitCode {
     }
 
     let urls_len = urls.len();
-
-    let client = {
-        let mut client = ClientBuilder::new();
-
-        if let Some(user_agent) = &cli.user_agent {
-            client = client.user_agent(user_agent);
-        }
-
-        if let Some(cf_clearance) = &cli.cf_clearance {
-            client = client.default_headers(HeaderMap::from_iter([(
-                COOKIE,
-                format!("cf_clearance={cf_clearance}").try_into().unwrap(),
-            )]));
-        }
-
-        client.build().unwrap()
-    };
+    let client = http_client(cli.user_agent.as_deref(), cli.cf_clearance.as_deref());
 
     match requests::check_availability(&client).await {
         Availability::Available => (),

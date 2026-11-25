@@ -35,7 +35,7 @@ pub async fn resolve_album(
     loop {
         let response = client
             .get(
-                Url::parse_with_params("https://lucida.to/", &[("url", url), ("country", country)])
+                Url::parse_with_params("https://lucida.to/", [("url", url), ("country", country)])
                     .unwrap(),
             )
             .send()
