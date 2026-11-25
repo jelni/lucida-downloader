@@ -163,6 +163,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a35200383f20018d41c14d1ab19c1727c697f544492143f7d93aa39f0187848"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -811,6 +820,7 @@ name = "lucida-downloader"
 version = "0.9.0"
 dependencies = [
  "clap",
+ "clap_complete",
  "futures",
  "json5",
  "reqwest",

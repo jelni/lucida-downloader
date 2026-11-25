@@ -5,7 +5,7 @@ use std::{env, process};
 
 use clap::Parser;
 use futures::future;
-use models::{BASE_URL, Cli, DownloadConfig, SkipConfig};
+use models::{BASE_URL, DownloadConfig, SkipConfig};
 use reqwest::header::{COOKIE, HeaderMap};
 use reqwest::{Client, ClientBuilder};
 use tokio::fs::File;
@@ -13,8 +13,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
 use tracing::Instrument;
 
+use crate::cli::Cli;
 use crate::models::Availability;
 
+mod cli;
 mod downloaders;
 mod models;
 mod requests;

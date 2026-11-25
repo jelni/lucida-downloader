@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use reqwest::Client;
 
+use crate::cli::AlbumYear;
 use crate::downloaders;
-use crate::models::{AlbumYear, DownloadConfig, Service, SkipConfig, Track};
+use crate::models::{DownloadConfig, Service, SkipConfig, Track};
 
 #[expect(
     clippy::too_many_arguments,

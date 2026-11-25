@@ -11,8 +11,9 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::{fs, time};
 use tracing::Instrument;
 
+use crate::cli::AlbumYear;
 use crate::models::{
-    AlbumInfo, AlbumYear, DownloadConfig, PageData, ResolveAlbumError, Service, SkipConfig, Track,
+    AlbumInfo, DownloadConfig, PageData, ResolveAlbumError, Service, SkipConfig, Track,
     TrackDownload,
 };
 use crate::{requests, text_utils, workers};
